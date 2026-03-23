@@ -182,23 +182,35 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         return SalesOrderSerializer
     
     def perform_create(self, serializer):
-        # Auto-generate order number (globally unique across all tenants due to DB constraint)
-        # Use _base_manager to bypass tenant filtering and get true last order number
-        last_order = SalesOrder._base_manager.all().order_by('-id').first()
-        if last_order and last_order.order_number.startswith('SO-'):
-            try:
-                last_num = int(last_order.order_number.split('-')[1])
-                order_number = f"SO-{str(last_num + 1).zfill(4)}"
-            except:
-                order_number = "SO-0001"
-        else:
-            order_number = "SO-0001"
+        from django.db import transaction
+        from django.db.utils import IntegrityError
         
-        serializer.save(
-            tenant=self.request.user.tenant,
-            created_by=self.request.user, 
-            order_number=order_number
-        )
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    # Auto-generate order number (globally unique across all tenants due to DB constraint)
+                    # Use _base_manager to bypass tenant filtering and get true last order number
+                    last_order = SalesOrder._base_manager.select_for_update().all().order_by('-id').first()
+                    if last_order and last_order.order_number.startswith('SO-'):
+                        try:
+                            last_num = int(last_order.order_number.split('-')[1])
+                            order_number = f"SO-{str(last_num + 1).zfill(4)}"
+                        except:
+                            order_number = "SO-0001"
+                    else:
+                        order_number = "SO-0001"
+                    
+                    serializer.save(
+                        tenant=self.request.user.tenant,
+                        created_by=self.request.user, 
+                        order_number=order_number
+                    )
+                    break  # Success, exit loop
+            except IntegrityError as e:
+                if attempt == max_retries - 1:
+                    raise
+                continue
     
     @extend_schema(
         description="Update sales order status",
@@ -324,19 +336,42 @@ class QuotationViewSet(viewsets.ModelViewSet):
         return Quotation.objects.select_related('customer', 'created_by').prefetch_related('lines__product')
     
     def perform_create(self, serializer):
-        # Generate quotation number
-        last_quotation = Quotation.objects.filter(tenant=self.request.user.tenant).order_by('-id').first()
-        if last_quotation:
-            last_num = int(last_quotation.quotation_number.split('-')[1])
-            quotation_number = f"QT-{str(last_num + 1).zfill(4)}"
-        else:
-            quotation_number = "QT-0001"
+        from django.db import transaction
+        from django.db.utils import IntegrityError
         
-        serializer.save(
-            created_by=self.request.user,
-            tenant=self.request.user.tenant,
-            quotation_number=quotation_number
-        )
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    # Generate quotation number with row-level locking
+                    # Get all quotations for this tenant and find the max number
+                    quotations = Quotation.objects.filter(
+                        tenant=self.request.user.tenant
+                    ).select_for_update().values_list('quotation_number', flat=True)
+                    
+                    max_num = 0
+                    for qn in quotations:
+                        try:
+                            num = int(qn.split('-')[1])
+                            if num > max_num:
+                                max_num = num
+                        except (ValueError, IndexError, AttributeError):
+                            continue
+                    
+                    quotation_number = f"QT-{str(max_num + 1).zfill(4)}"
+                    
+                    serializer.save(
+                        created_by=self.request.user,
+                        tenant=self.request.user.tenant,
+                        quotation_number=quotation_number
+                    )
+                    break  # Success, exit loop
+            except IntegrityError as e:
+                if attempt == max_retries - 1:
+                    # Last attempt failed, raise the error
+                    raise
+                # Retry with a new number
+                continue
 
     
     @extend_schema(
@@ -422,22 +457,38 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     ordering = ['-date', '-created_at']
     
     def perform_create(self, serializer):
+        from django.db import transaction
+        from django.db.utils import IntegrityError
+        
         # Auto-generate invoice number if not provided
         if 'invoice_number' not in serializer.validated_data or not serializer.validated_data.get('invoice_number'):
-            last_invoice = Invoice.objects.filter(tenant=self.request.user.tenant).order_by('-id').first()
-            if last_invoice and last_invoice.invoice_number.startswith('INV-'):
+            max_retries = 5
+            for attempt in range(max_retries):
                 try:
-                    last_num = int(last_invoice.invoice_number.split('-')[1])
-                    invoice_number = f"INV-{str(last_num + 1).zfill(4)}"
-                except:
-                    invoice_number = "INV-0001"
-            else:
-                invoice_number = "INV-0001"
-            serializer.save(
-                tenant=self.request.user.tenant,
-                created_by=self.request.user,
-                invoice_number=invoice_number
-            )
+                    with transaction.atomic():
+                        last_invoice = Invoice.objects.filter(
+                            tenant=self.request.user.tenant
+                        ).select_for_update().order_by('-id').first()
+                        
+                        if last_invoice and last_invoice.invoice_number.startswith('INV-'):
+                            try:
+                                last_num = int(last_invoice.invoice_number.split('-')[1])
+                                invoice_number = f"INV-{str(last_num + 1).zfill(4)}"
+                            except:
+                                invoice_number = "INV-0001"
+                        else:
+                            invoice_number = "INV-0001"
+                        
+                        serializer.save(
+                            tenant=self.request.user.tenant,
+                            created_by=self.request.user,
+                            invoice_number=invoice_number
+                        )
+                        break  # Success, exit loop
+                except IntegrityError as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    continue
         else:
             serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
 
@@ -515,22 +566,38 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
     ordering = ['-date', '-created_at']
     
     def perform_create(self, serializer):
+        from django.db import transaction
+        from django.db.utils import IntegrityError
+        
         # Auto-generate credit note number if not provided
         if 'credit_note_number' not in serializer.validated_data or not serializer.validated_data.get('credit_note_number'):
-            last_credit_note = CreditNote.objects.filter(tenant=self.request.user.tenant).order_by('-id').first()
-            if last_credit_note and last_credit_note.credit_note_number.startswith('CN-'):
+            max_retries = 5
+            for attempt in range(max_retries):
                 try:
-                    last_num = int(last_credit_note.credit_note_number.split('-')[1])
-                    credit_note_number = f"CN-{str(last_num + 1).zfill(4)}"
-                except:
-                    credit_note_number = "CN-0001"
-            else:
-                credit_note_number = "CN-0001"
-            serializer.save(
-                tenant=self.request.user.tenant,
-                created_by=self.request.user,
-                credit_note_number=credit_note_number
-            )
+                    with transaction.atomic():
+                        last_credit_note = CreditNote.objects.filter(
+                            tenant=self.request.user.tenant
+                        ).select_for_update().order_by('-id').first()
+                        
+                        if last_credit_note and last_credit_note.credit_note_number.startswith('CN-'):
+                            try:
+                                last_num = int(last_credit_note.credit_note_number.split('-')[1])
+                                credit_note_number = f"CN-{str(last_num + 1).zfill(4)}"
+                            except:
+                                credit_note_number = "CN-0001"
+                        else:
+                            credit_note_number = "CN-0001"
+                        
+                        serializer.save(
+                            tenant=self.request.user.tenant,
+                            created_by=self.request.user,
+                            credit_note_number=credit_note_number
+                        )
+                        break  # Success, exit loop
+                except IntegrityError as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    continue
         else:
             serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
 

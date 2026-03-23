@@ -12,3 +12,4 @@ env/
 media/
 staticfiles/
 BackendDoc/
+tests/

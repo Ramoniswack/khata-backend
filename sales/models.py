@@ -85,7 +85,7 @@ class SalesOrder(TenantModel):
         ('credit', 'Credit'),
     ]
     
-    order_number = models.CharField(max_length=50, unique=True)
+    order_number = models.CharField(max_length=50)
     date = models.DateField()
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='sales_orders')
     reference = models.CharField(max_length=100, blank=True, null=True)
@@ -102,6 +102,7 @@ class SalesOrder(TenantModel):
         ordering = ['-date', '-created_at']
         verbose_name = 'Sales Order'
         verbose_name_plural = 'Sales Orders'
+        unique_together = [['tenant', 'order_number']]
     
     def __str__(self):
         return f"{self.order_number} - {self.customer.name}"
@@ -205,7 +206,7 @@ class Quotation(TenantModel):
         ('Expired', 'Expired'),
     ]
     
-    quotation_number = models.CharField(max_length=50, unique=True)
+    quotation_number = models.CharField(max_length=50)
     date = models.DateField()
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name='quotations')
     valid_until = models.DateField()
@@ -221,6 +222,8 @@ class Quotation(TenantModel):
         ordering = ['-date', '-created_at']
         verbose_name = 'Quotation'
         verbose_name_plural = 'Quotations'
+        # Quotation number should be unique per tenant, not globally
+        unique_together = [['tenant', 'quotation_number']]
     
     def __str__(self):
         return f"{self.quotation_number} - {self.customer.name}"
