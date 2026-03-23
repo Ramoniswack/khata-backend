@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import User
+from .models import User, AuditLog
 from tenants.models import Tenant
 
 
@@ -136,11 +136,11 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
-    tenant_name = serializers.CharField(write_only=True, required=False, help_text="Organization name for new tenant creation")
+    tenant_name = serializers.CharField(write_only=True, required=True, help_text="Organization name for new tenant creation")
     
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'first_name', 'last_name', 'phone', 'role', 'tenant_name']
+        fields = ['username', 'email', 'password', 'first_name', 'last_name', 'phone', 'tenant_name']
     
     def validate_email(self, value):
         """Ensure email is unique"""
@@ -156,14 +156,28 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         try:
-            # Remove tenant_name if provided (we don't auto-create tenants anymore)
-            validated_data.pop('tenant_name', None)
+            # Extract tenant_name
+            tenant_name = validated_data.pop('tenant_name')
             
-            # Create user WITHOUT tenant
+            # Create tenant first (mark as created from registration)
+            tenant = Tenant.objects.create(
+                name=tenant_name,
+                business_type='other',
+                plan_type='free',
+                active_modules=['sales', 'purchase', 'inventory', 'accounting', 'construction', 'reports'],
+                created_from_registration=True  # Mark as registration tenant
+            )
+            
+            # Create user as admin of the new tenant
             user = User.objects.create_user(
                 **validated_data,
-                tenant=None  # No tenant assigned yet
+                tenant=tenant,
+                role='admin'  # First user is always admin
             )
+            
+            # Set created_by on tenant
+            tenant.created_by = user
+            tenant.save()
             
             return user
         except serializers.ValidationError:
@@ -184,3 +198,22 @@ class RegisterSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'detail': f'Registration failed: {error_msg}'
                 })
+
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+    
+    class Meta:
+        model = AuditLog
+        fields = [
+            'id', 'user', 'user_name', 'action', 'action_display', 'module',
+            'description', 'ip_address', 'metadata', 'created_at'
+        ]
+        read_only_fields = fields
+    
+    def get_user_name(self, obj):
+        if obj.user:
+            return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
+        return "System"

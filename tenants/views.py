@@ -12,10 +12,10 @@ class TenantViewSet(viewsets.ModelViewSet):
     ViewSet for managing tenants
     """
     def get_queryset(self):
-        """Filter tenants - authenticated users see all tenants they created"""
+        """Filter tenants - authenticated users see only tenants they explicitly created (not from registration)"""
         if self.request.user.is_authenticated:
-            # Return all tenants created by this user
-            return Tenant.objects.filter(created_by=self.request.user)
+            # Return only tenants created explicitly (not from registration)
+            return Tenant.objects.filter(created_by=self.request.user, created_from_registration=False)
         # For unauthenticated users (for create action), return none
         return Tenant.objects.none()
     serializer_class = TenantSerializer
@@ -36,8 +36,11 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Associate the created tenant with the current user if authenticated"""
-        # Save tenant with created_by field
-        tenant = serializer.save(created_by=self.request.user if self.request.user.is_authenticated else None)
+        # Save tenant with created_by field and created_from_registration=False
+        tenant = serializer.save(
+            created_by=self.request.user if self.request.user.is_authenticated else None,
+            created_from_registration=False  # Explicitly created tenant
+        )
         
         # If user is authenticated, assign this tenant as their active tenant
         if self.request.user.is_authenticated:
@@ -130,4 +133,43 @@ class TenantViewSet(viewsets.ModelViewSet):
         
         tenant.deactivate_module(module_name)
         serializer = self.get_serializer(tenant)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        summary='Get current tenant settings',
+        description='Get settings for the currently active tenant',
+    )
+    @action(detail=False, methods=['get'])
+    def current(self, request):
+        """Get current tenant settings"""
+        if not request.user.tenant:
+            return Response(
+                {'error': 'No active tenant found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = self.get_serializer(request.user.tenant)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        summary='Update current tenant settings',
+        description='Update settings for the currently active tenant',
+    )
+    @action(detail=False, methods=['patch'])
+    def update_current(self, request):
+        """Update current tenant settings"""
+        if not request.user.tenant:
+            return Response(
+                {'error': 'No active tenant found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Only allow certain fields to be updated
+        allowed_fields = ['name', 'business_type', 'owner_name', 'email', 'phone', 'address']
+        update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
+        
+        serializer = self.get_serializer(request.user.tenant, data=update_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        
         return Response(serializer.data)

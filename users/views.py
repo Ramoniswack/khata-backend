@@ -4,8 +4,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from .models import User
-from .serializers import UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer
+from .models import User, AuditLog
+from .serializers import UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer, AuditLogSerializer
 from .permissions import IsAdminOrManager
 
 
@@ -35,7 +35,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 @extend_schema(
     tags=['Authentication'],
     summary='Register a new user',
-    description='Create a new user account. The user will be assigned to a tenant by an admin.',
+    description='Create a new user account with a new organization. The user will be the admin of their organization.',
 )
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -92,10 +92,16 @@ class UserViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return User.objects.filter(tenant=self.request.user.tenant)
+        if self.request.user.tenant:
+            return User.objects.filter(tenant=self.request.user.tenant)
+        # If user has no tenant, return empty queryset
+        return User.objects.none()
     
     def perform_create(self, serializer):
         """Assign user to current tenant when creating"""
+        if not self.request.user.tenant:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': 'You must be assigned to an organization to create users.'})
         serializer.save(tenant=self.request.user.tenant)
     
     def get_permissions(self):
@@ -103,3 +109,29 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [permissions.IsAuthenticated(), IsAdminOrManager()]
         return super().get_permissions()
+
+
+
+@extend_schema_view(
+    list=extend_schema(tags=['Audit'], summary='List audit logs'),
+    retrieve=extend_schema(tags=['Audit'], summary='Get audit log details'),
+)
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing audit logs (read-only)
+    Filtered by current tenant
+    Only admins and managers can view audit logs
+    """
+    serializer_class = AuditLogSerializer
+    permission_classes = [permissions.IsAuthenticated, IsAdminOrManager]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['action', 'module', 'user']
+    search_fields = ['description', 'user__username', 'user__first_name', 'user__last_name']
+    ordering_fields = ['created_at', 'action', 'module']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        """Filter by current tenant"""
+        if not self.request.user.tenant:
+            return AuditLog.objects.none()
+        return AuditLog.objects.filter(tenant=self.request.user.tenant).select_related('user')

@@ -46,6 +46,10 @@ class Tenant(models.Model):
     # Subscription & Status
     is_active = models.BooleanField(default=True)
     plan_type = models.CharField(max_length=20, choices=PLAN_CHOICES, default='free')
+    created_from_registration = models.BooleanField(
+        default=False,
+        help_text="True if tenant was created during user registration, False if created explicitly from /erp/new"
+    )
     
     # Module Subscriptions (JSON field for flexibility)
     active_modules = models.JSONField(

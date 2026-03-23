@@ -2,11 +2,12 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.utils import extend_schema
-from .views import RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView
+from .views import RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView, AuditLogViewSet
 
 # Router for ViewSets
 router = DefaultRouter()
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'audit-logs', AuditLogViewSet, basename='audit-log')
 
 # Add schema documentation to JWT refresh view
 TokenRefreshView = extend_schema(
