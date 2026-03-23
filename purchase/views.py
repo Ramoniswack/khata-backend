@@ -46,12 +46,17 @@ class SupplierViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter by current tenant"""
         return Supplier.objects.all()
+    
     serializer_class = SupplierSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ['status', 'type', 'payment_terms']
     search_fields = ['name', 'phone', 'email', 'pan']
     ordering_fields = ['name', 'created_at', 'total_purchased']
     ordering = ['-created_at']
+    
+    def perform_create(self, serializer):
+        """Ensure tenant is set when creating supplier"""
+        serializer.save(tenant=self.request.user.tenant)
 
 
 
@@ -102,7 +107,7 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
         return PurchaseRequestSerializer
     
     def perform_create(self, serializer):
-        serializer.save(requested_by=self.request.user)
+        serializer.save(requested_by=self.request.user, tenant=self.request.user.tenant)
     
     @extend_schema(
         description="Approve a purchase request (Step 2 of 3-step workflow)",
@@ -297,8 +302,31 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             return PurchaseOrderCreateSerializer
         return PurchaseOrderSerializer
     
+    def create(self, request, *args, **kwargs):
+        """Override create to add better error logging"""
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+            print(f"[PO Create Exception] {str(e)}")
+            print(traceback.format_exc())
+            raise
+    
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        from django.utils import timezone
+        tenant = self.request.user.tenant
+        
+        # Generate po_number
+        count = PurchaseOrder.objects.filter(tenant=tenant).count() + 1
+        po_number = f"PO-{timezone.now().year}-{count:05d}"
+        
+        try:
+            serializer.save(created_by=self.request.user, tenant=tenant, po_number=po_number)
+        except Exception as e:
+            import traceback
+            print(f"[PO Create Error] {str(e)}")
+            print(traceback.format_exc())
+            raise
     
     @extend_schema(
         description="Update purchase order status",
@@ -459,7 +487,8 @@ class PurchaseInvoiceViewSet(viewsets.ModelViewSet):
     ordering = ['-date', '-created_at']
     
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        # Pass tenant to serializer for invoice_number generation
+        serializer.save(created_by=self.request.user, tenant=self.request.user.tenant)
     
     @extend_schema(
         description="Record payment for a purchase invoice",
@@ -557,4 +586,4 @@ class DebitNoteViewSet(viewsets.ModelViewSet):
     ordering = ['-date', '-created_at']
     
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by=self.request.user, tenant=self.request.user.tenant)

@@ -90,5 +90,5 @@ django.template.context.Context.__copy__ = patched_context_copy
 django.template.context.RequestContext.__copy__ = patched_request_context_copy
 
 
-print("✓ Django Python 3.14 compatibility patch applied (Context + RequestContext)")
+print("[OK] Django Python 3.14 compatibility patch applied (Context + RequestContext)")
 

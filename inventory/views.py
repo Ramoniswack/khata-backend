@@ -62,6 +62,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         """Filter categories by current tenant"""
         return Category.objects.all()
     
+    def perform_create(self, serializer):
+        """Ensure tenant is set when creating category"""
+        serializer.save(tenant=self.request.user.tenant)
+    
     @extend_schema(
         tags=['Inventory - Categories'],
         summary='Get category tree',
@@ -110,6 +114,10 @@ class UnitOfMeasureViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter units by current tenant"""
         return UnitOfMeasure.objects.all()
+    
+    def perform_create(self, serializer):
+        """Ensure tenant is set when creating unit"""
+        serializer.save(tenant=self.request.user.tenant)
 
 
 @extend_schema_view(
@@ -147,6 +155,10 @@ class WarehouseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter warehouses by current tenant"""
         return Warehouse.objects.all()
+    
+    def perform_create(self, serializer):
+        """Ensure tenant is set when creating warehouse"""
+        serializer.save(tenant=self.request.user.tenant)
 
     @extend_schema(
         tags=['Inventory - Warehouses'],
@@ -256,6 +268,10 @@ class ProductViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    def perform_create(self, serializer):
+        """Ensure tenant is set when creating product"""
+        serializer.save(tenant=self.request.user.tenant)
     
     @extend_schema(
         tags=['Inventory - Products'],

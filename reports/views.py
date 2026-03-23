@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
-from django.db.models import Sum, Count, F, Q, DecimalField, Value
+from django.db.models import Sum, Count, F, Q, DecimalField, Value, Avg
 from django.db.models.functions import Coalesce
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -1061,3 +1061,205 @@ class ReportViewSet(viewsets.ViewSet):
                 'end_date': end_date.isoformat() if end_date else None,
             }
         })
+    
+    @extend_schema(
+        tags=['Reports'],
+        summary='Purchase Reports',
+        description='Purchase analytics including summary, by supplier, by product, and tax reports',
+        parameters=[
+            OpenApiParameter('date_range', str, description='Date range: week, month, quarter, year (default: month)'),
+        ]
+    )
+    @action(detail=False, methods=['get'], url_path='purchase-reports')
+    def purchase_reports(self, request):
+        """Comprehensive purchase reports"""
+        try:
+            tenant = self.get_tenant()
+            date_range = request.query_params.get('date_range', 'month')
+            
+            # Calculate date range
+            from django.utils import timezone
+            now = timezone.now().date()
+            
+            if date_range == 'week':
+                start_date = now - timedelta(days=now.weekday() + 1)
+            elif date_range == 'quarter':
+                quarter_month = ((now.month - 1) // 3) * 3 + 1
+                start_date = now.replace(month=quarter_month, day=1)
+            elif date_range == 'year':
+                start_date = now.replace(month=1, day=1)
+            else:  # month
+                start_date = now.replace(day=1)
+            
+            end_date = now
+            
+            # ===== PURCHASE SUMMARY =====
+            invoices_qs = PurchaseInvoice.objects.filter(
+                tenant=tenant,
+                date__gte=start_date,
+                date__lte=end_date
+            )
+            
+            total_purchases = invoices_qs.aggregate(
+                total=Coalesce(Sum('amount'), Value(Decimal('0.00')))
+            )['total']
+            
+            total_orders = invoices_qs.count()
+            avg_order_value = (total_purchases / total_orders) if total_orders > 0 else Decimal('0.00')
+            
+            total_paid = invoices_qs.aggregate(
+                total=Coalesce(Sum('paid_amount'), Value(Decimal('0.00')))
+            )['total']
+            
+            payment_rate = (total_paid / total_purchases * 100) if total_purchases > 0 else Decimal('0.00')
+            
+            # ===== BY SUPPLIER =====
+            by_supplier = []
+            try:
+                suppliers_data = invoices_qs.values(
+                    'supplier__id', 'supplier__name'
+                ).annotate(
+                    total_orders=Count('id'),
+                    total_amount=Sum('amount'),
+                    outstanding=Sum(F('amount') - F('paid_amount'), output_field=DecimalField())
+                ).order_by('-total_amount')
+                
+                for item in suppliers_data:
+                    by_supplier.append({
+                        'supplier_id': str(item['supplier__id']),
+                        'supplier_name': item['supplier__name'] or 'Unknown',
+                        'orders': item['total_orders'] or 0,
+                        'amount': float(item['total_amount'] or 0),
+                        'outstanding': float(item['outstanding'] or 0),
+                        'status': 'active',
+                    })
+            except Exception as e:
+                print(f"[Purchase Reports - By Supplier Error] {str(e)}")
+            
+            # ===== BY PRODUCT =====
+            by_product = []
+            try:
+                from purchase.models import PurchaseOrderLine
+                products_data = PurchaseOrderLine.objects.filter(
+                    purchase_order__tenant=tenant,
+                    purchase_order__date__gte=start_date,
+                    purchase_order__date__lte=end_date
+                ).values(
+                    'product__id', 'product__name', 'product__unit'
+                ).annotate(
+                    total_qty=Sum('quantity'),
+                    total_amount=Sum(F('quantity') * F('unit_price'), output_field=DecimalField()),
+                    avg_price=Avg('unit_price')
+                ).order_by('-total_amount')
+                
+                for item in products_data:
+                    by_product.append({
+                        'product_id': str(item['product__id']),
+                        'product_name': item['product__name'] or 'Unknown',
+                        'unit': item['product__unit'] or 'unit',
+                        'qty': int(item['total_qty'] or 0),
+                        'amount': float(item['total_amount'] or 0),
+                        'avg_price': float(item['avg_price'] or 0),
+                    })
+            except Exception as e:
+                print(f"[Purchase Reports - By Product Error] {str(e)}")
+            
+            # ===== TAX REPORT =====
+            tax_data = []
+            current = start_date
+            while current <= end_date:
+                # Calculate month end
+                if current.month == 12:
+                    month_end = current.replace(year=current.year + 1, month=1, day=1) - timedelta(days=1)
+                else:
+                    month_end = current.replace(month=current.month + 1, day=1) - timedelta(days=1)
+                month_end = min(month_end, end_date)
+                
+                month_invoices = invoices_qs.filter(
+                    date__gte=current,
+                    date__lte=month_end
+                )
+                
+                taxable_purchases = month_invoices.aggregate(
+                    total=Coalesce(Sum('amount'), Value(Decimal('0.00')))
+                )['total']
+                
+                # Assuming 13% VAT
+                vat_amount = taxable_purchases * Decimal('0.13')
+                
+                tax_data.append({
+                    'month': current.strftime('%b'),
+                    'taxable': float(taxable_purchases),
+                    'vat': float(vat_amount),
+                })
+                
+                # Move to next month
+                if current.month == 12:
+                    current = current.replace(year=current.year + 1, month=1, day=1)
+                else:
+                    current = current.replace(month=current.month + 1, day=1)
+            
+            total_taxable = sum(item['taxable'] for item in tax_data)
+            total_vat = sum(item['vat'] for item in tax_data)
+            
+            # ===== MONTHLY TREND =====
+            monthly_trend = []
+            current = start_date
+            while current <= end_date:
+                # Calculate month end
+                if current.month == 12:
+                    month_end = current.replace(year=current.year + 1, month=1, day=1) - timedelta(days=1)
+                else:
+                    month_end = current.replace(month=current.month + 1, day=1) - timedelta(days=1)
+                month_end = min(month_end, end_date)
+                
+                month_purchases = invoices_qs.filter(
+                    date__gte=current,
+                    date__lte=month_end
+                ).aggregate(
+                    total=Coalesce(Sum('amount'), Value(Decimal('0.00')))
+                )['total']
+                
+                monthly_trend.append({
+                    'month': current.strftime('%b'),
+                    'purchases': float(month_purchases),
+                })
+                
+                # Move to next month
+                if current.month == 12:
+                    current = current.replace(year=current.year + 1, month=1, day=1)
+                else:
+                    current = current.replace(month=current.month + 1, day=1)
+            
+            return Response({
+                'summary': {
+                    'total_purchases': float(total_purchases),
+                    'total_orders': total_orders,
+                    'avg_order_value': float(avg_order_value),
+                    'total_paid': float(total_paid),
+                    'payment_rate_percentage': float(round(payment_rate, 2)),
+                },
+                'by_supplier': by_supplier,
+                'by_product': by_product,
+                'tax_report': {
+                    'total_taxable': float(total_taxable),
+                    'total_vat': float(total_vat),
+                    'monthly_data': tax_data,
+                },
+                'monthly_trend': monthly_trend,
+                'period': {
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat(),
+                    'range': date_range,
+                }
+            })
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            tb = traceback.format_exc()
+            print(f"[Purchase Reports Error] {error_msg}")
+            print(tb)
+            return Response(
+                {'error': error_msg, 'traceback': tb, 'detail': 'Failed to load purchase reports'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

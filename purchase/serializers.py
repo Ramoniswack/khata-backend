@@ -16,9 +16,9 @@ class SupplierSerializer(serializers.ModelSerializer):
             'id', 'name', 'phone', 'email', 'pan', 'address', 'type',
             'credit_limit', 'payment_terms', 'status', 'bank_name',
             'bank_account', 'lead_time_days', 'total_orders',
-            'total_purchased', 'outstanding_amount', 'created_at', 'updated_at'
+            'total_purchased', 'outstanding_amount', 'tenant', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'tenant', 'created_at', 'updated_at']
 
 
 class PurchaseRequestLineSerializer(serializers.ModelSerializer):
@@ -46,9 +46,9 @@ class PurchaseRequestSerializer(serializers.ModelSerializer):
             'id', 'request_number', 'date', 'requested_by', 'requested_by_name',
             'department', 'required_by', 'estimated_amount', 'priority', 'status',
             'approved_by', 'approved_by_name', 'approved_at', 'rejection_reason',
-            'notes', 'items_count', 'lines', 'created_at', 'updated_at'
+            'notes', 'items_count', 'lines', 'tenant', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'tenant', 'created_at', 'updated_at']
 
 
 class PurchaseRequestCreateSerializer(serializers.ModelSerializer):
@@ -105,7 +105,15 @@ class PurchaseOrderLineSerializer(serializers.ModelSerializer):
             'id', 'product', 'product_name', 'product_sku', 'description',
             'quantity', 'unit_price', 'tax_percent', 'amount', 'received_quantity'
         ]
-        read_only_fields = ['id', 'amount']
+        read_only_fields = ['id', 'amount', 'product_name', 'product_sku']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make optional fields not required
+        for field_name in ['description', 'received_quantity']:
+            if field_name in self.fields:
+                self.fields[field_name].required = False
+                self.fields[field_name].allow_null = True
 
 
 class PurchaseOrderSerializer(serializers.ModelSerializer):
@@ -120,10 +128,10 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             'id', 'po_number', 'date', 'supplier', 'supplier_name',
             'expected_delivery_date', 'reference', 'payment_terms', 'status',
             'subtotal', 'tax', 'total', 'purchase_request', 'notes',
-            'items_count', 'lines', 'created_by', 'created_by_name',
+            'items_count', 'lines', 'created_by', 'created_by_name', 'tenant',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'tenant', 'created_at', 'updated_at']
 
 
 class PurchaseOrderCreateSerializer(serializers.ModelSerializer):
@@ -136,13 +144,27 @@ class PurchaseOrderCreateSerializer(serializers.ModelSerializer):
             'reference', 'payment_terms', 'status', 'subtotal', 'tax', 'total',
             'purchase_request', 'notes', 'lines'
         ]
+        read_only_fields = ['id', 'po_number']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make optional fields not required
+        for field_name in ['reference', 'purchase_request', 'notes']:
+            if field_name in self.fields:
+                self.fields[field_name].required = False
+                self.fields[field_name].allow_null = True
     
     def create(self, validated_data):
         lines_data = validated_data.pop('lines')
+        
         purchase_order = PurchaseOrder.objects.create(**validated_data)
+        
+        # Get tenant from the purchase order
+        tenant = purchase_order.tenant
         
         for line_data in lines_data:
             PurchaseOrderLine.objects.create(
+                tenant=tenant,
                 purchase_order=purchase_order,
                 **line_data
             )
@@ -181,9 +203,19 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'invoice_number', 'date', 'due_date', 'supplier', 'supplier_name',
             'purchase_order', 'amount', 'paid_amount', 'balance', 'status', 'notes',
-            'created_by', 'created_by_name', 'created_at', 'updated_at'
+            'created_by', 'created_by_name', 'tenant', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'invoice_number', 'tenant', 'created_at', 'updated_at']
+    
+    def create(self, validated_data):
+        # Generate invoice number
+        from django.utils import timezone
+        tenant = validated_data.get('tenant')
+        if tenant:
+            count = PurchaseInvoice.objects.filter(tenant=tenant).count() + 1
+            invoice_number = f"PINV-{timezone.now().year}-{count:05d}"
+            validated_data['invoice_number'] = invoice_number
+        return super().create(validated_data)
 
 
 class DebitNoteSerializer(serializers.ModelSerializer):
@@ -196,6 +228,16 @@ class DebitNoteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'debit_note_number', 'date', 'supplier', 'supplier_name',
             'invoice', 'invoice_number', 'amount', 'reason', 'description',
-            'status', 'created_by', 'created_by_name', 'created_at', 'updated_at'
+            'status', 'created_by', 'created_by_name', 'tenant', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'debit_note_number', 'tenant', 'created_at', 'updated_at']
+    
+    def create(self, validated_data):
+        # Generate debit note number
+        from django.utils import timezone
+        tenant = validated_data.get('tenant')
+        if tenant:
+            count = DebitNote.objects.filter(tenant=tenant).count() + 1
+            debit_note_number = f"DN-{timezone.now().year}-{count:05d}"
+            validated_data['debit_note_number'] = debit_note_number
+        return super().create(validated_data)
