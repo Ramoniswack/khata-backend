@@ -1,0 +1,118 @@
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+
+class User(AbstractUser):
+    """
+    Custom User model with tenant association and role-based access control.
+    
+    Roles:
+    - ADMIN: Full access to all modules, can manage users and view all financial data
+    - MANAGER: Access to assigned projects, can approve purchases, view project financials
+    - SUPERVISOR: Day-to-day data entry (attendance, materials, stock), no financial access
+    - ACCOUNTANT: View and manage financial data only, no inventory/operations access
+    - VIEWER: Read-only access for external stakeholders
+    """
+    ROLE_CHOICES = [
+        ('admin', 'Admin'),
+        ('manager', 'Manager'),
+        ('supervisor', 'Supervisor'),
+        ('accountant', 'Accountant'),
+        ('viewer', 'Viewer'),
+    ]
+    
+    tenant = models.ForeignKey(
+        'tenants.Tenant',
+        on_delete=models.CASCADE,
+        related_name='users',
+        null=True,
+        blank=True
+    )
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='viewer')
+    phone = models.CharField(max_length=20, blank=True)
+    
+    # For managers - assigned sites/projects
+    assigned_sites = models.ManyToManyField(
+        'construction.Site',
+        related_name='assigned_managers',
+        blank=True,
+        help_text='Sites/projects this manager has access to'
+    )
+    
+    class Meta:
+        db_table = 'users'
+        ordering = ['-date_joined']
+    
+    def __str__(self):
+        return f"{self.username} ({self.get_role_display()})"
+    
+    @property
+    def is_admin(self):
+        """Check if user is admin"""
+        return self.role == 'admin'
+    
+    @property
+    def is_manager(self):
+        """Check if user is manager"""
+        return self.role == 'manager'
+    
+    @property
+    def is_supervisor(self):
+        """Check if user is supervisor"""
+        return self.role == 'supervisor'
+    
+    @property
+    def is_accountant(self):
+        """Check if user is accountant"""
+        return self.role == 'accountant'
+    
+    @property
+    def is_viewer(self):
+        """Check if user is viewer"""
+        return self.role == 'viewer'
+    
+    def has_module_access(self, module):
+        """
+        Check if user has access to a specific module
+        
+        Args:
+            module: One of 'sales', 'purchase', 'inventory', 'construction', 
+                   'accounting', 'reports', 'pos', 'hr'
+        """
+        # First check if tenant has this module activated
+        if self.tenant and module not in self.tenant.active_modules:
+            return False
+        
+        # Admin has access to everything (if tenant has the module)
+        if self.is_admin:
+            return True
+        
+        # Module-specific access rules based on role
+        access_matrix = {
+            'sales': ['admin', 'manager', 'accountant'],
+            'purchase': ['admin', 'manager', 'accountant'],
+            'inventory': ['admin', 'manager', 'supervisor'],
+            'construction': ['admin', 'manager', 'supervisor'],
+            'accounting': ['admin', 'accountant'],
+            'reports': ['admin', 'manager', 'accountant'],
+            'pos': ['admin', 'manager'],
+            'hr': ['admin', 'manager'],
+        }
+        
+        return self.role in access_matrix.get(module, [])
+    
+    def can_approve_purchases(self):
+        """Check if user can approve purchase requests"""
+        return self.role in ['admin', 'manager']
+    
+    def can_manage_users(self):
+        """Check if user can add/remove users and assign roles"""
+        return self.is_admin
+    
+    def can_view_financials(self):
+        """Check if user can view financial data"""
+        return self.role in ['admin', 'manager', 'accountant']
+    
+    def can_edit_data(self):
+        """Check if user can edit data (not just view)"""
+        return self.role != 'viewer'
