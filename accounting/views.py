@@ -101,6 +101,339 @@ class AccountViewSet(viewsets.ModelViewSet):
             })
         
         return Response(ledger_data)
+    
+    @extend_schema(
+        tags=['Accounting - Reports'],
+        summary='Get trial balance',
+        description='Returns trial balance report showing debit and credit balances for all accounts',
+        parameters=[
+            OpenApiParameter('as_of_date', type=str, description='As of date (YYYY-MM-DD)'),
+        ]
+    )
+    @action(detail=False, methods=['get'])
+    def trial_balance(self, request):
+        """Get trial balance report"""
+        as_of_date = request.query_params.get('as_of_date')
+        
+        # Get all active accounts with level > 0 (leaf accounts)
+        accounts = self.get_queryset().filter(status='active', level__gt=0).order_by('type', 'code')
+        
+        trial_balance_data = []
+        total_debit = Decimal('0.00')
+        total_credit = Decimal('0.00')
+        
+        for account in accounts:
+            # Calculate balance for this account up to as_of_date
+            lines = JournalLine.objects.filter(
+                tenant=request.user.tenant,
+                account=account,
+                journal_entry__status='posted'
+            )
+            
+            if as_of_date:
+                lines = lines.filter(journal_entry__date__lte=as_of_date)
+            
+            # Calculate net balance
+            aggregates = lines.aggregate(
+                total_debit=Sum('debit'),
+                total_credit=Sum('credit')
+            )
+            
+            debit_sum = aggregates['total_debit'] or Decimal('0.00')
+            credit_sum = aggregates['total_credit'] or Decimal('0.00')
+            balance = debit_sum - credit_sum
+            
+            # Determine if this account type normally has debit or credit balance
+            is_debit_type = account.type in ['Assets', 'Expense']
+            
+            # Only include accounts with non-zero balance
+            if balance != 0:
+                if is_debit_type:
+                    debit_balance = abs(balance) if balance > 0 else Decimal('0.00')
+                    credit_balance = abs(balance) if balance < 0 else Decimal('0.00')
+                else:
+                    debit_balance = abs(balance) if balance > 0 else Decimal('0.00')
+                    credit_balance = abs(balance) if balance < 0 else Decimal('0.00')
+                
+                # For normal balance side
+                if is_debit_type and balance > 0:
+                    debit_balance = balance
+                    credit_balance = Decimal('0.00')
+                elif is_debit_type and balance < 0:
+                    debit_balance = Decimal('0.00')
+                    credit_balance = abs(balance)
+                elif not is_debit_type and balance > 0:
+                    debit_balance = balance
+                    credit_balance = Decimal('0.00')
+                else:
+                    debit_balance = Decimal('0.00')
+                    credit_balance = abs(balance)
+                
+                total_debit += debit_balance
+                total_credit += credit_balance
+                
+                trial_balance_data.append({
+                    'id': account.id,
+                    'code': account.code,
+                    'name': account.name,
+                    'type': account.type,
+                    'level': account.level,
+                    'debit': debit_balance,
+                    'credit': credit_balance,
+                    'balance': balance
+                })
+        
+        return Response({
+            'as_of_date': as_of_date,
+            'accounts': trial_balance_data,
+            'total_debit': total_debit,
+            'total_credit': total_credit,
+            'is_balanced': abs(total_debit - total_credit) < Decimal('0.01')
+        })
+    
+    @extend_schema(
+        tags=['Accounting - Reports'],
+        summary='Get profit & loss statement',
+        description='Returns profit & loss statement showing income, expenses, and net profit',
+        parameters=[
+            OpenApiParameter('from_date', type=str, description='Start date (YYYY-MM-DD)'),
+            OpenApiParameter('to_date', type=str, description='End date (YYYY-MM-DD)'),
+        ]
+    )
+    @action(detail=False, methods=['get'])
+    def profit_loss(self, request):
+        """Get profit & loss statement"""
+        from_date = request.query_params.get('from_date')
+        to_date = request.query_params.get('to_date')
+        
+        # Get all active income and expense accounts
+        accounts = self.get_queryset().filter(
+            status='active',
+            level__gt=0,
+            type__in=['Income', 'Expense']
+        ).order_by('type', 'code')
+        
+        income_accounts = []
+        expense_accounts = []
+        total_income = Decimal('0.00')
+        total_expenses = Decimal('0.00')
+        
+        for account in accounts:
+            # Calculate balance for this account within date range
+            lines = JournalLine.objects.filter(
+                tenant=request.user.tenant,
+                account=account,
+                journal_entry__status='posted'
+            )
+            
+            if from_date:
+                lines = lines.filter(journal_entry__date__gte=from_date)
+            if to_date:
+                lines = lines.filter(journal_entry__date__lte=to_date)
+            
+            # Calculate net balance
+            aggregates = lines.aggregate(
+                total_debit=Sum('debit'),
+                total_credit=Sum('credit')
+            )
+            
+            debit_sum = aggregates['total_debit'] or Decimal('0.00')
+            credit_sum = aggregates['total_credit'] or Decimal('0.00')
+            
+            # For Income accounts: credit increases income (normal credit balance)
+            # For Expense accounts: debit increases expense (normal debit balance)
+            if account.type == 'Income':
+                amount = credit_sum - debit_sum  # Net credit is income
+                if amount != 0:
+                    total_income += amount
+                    income_accounts.append({
+                        'id': account.id,
+                        'code': account.code,
+                        'name': account.name,
+                        'sub_type': account.sub_type,
+                        'amount': amount
+                    })
+            else:  # Expense
+                amount = debit_sum - credit_sum  # Net debit is expense
+                if amount != 0:
+                    total_expenses += amount
+                    expense_accounts.append({
+                        'id': account.id,
+                        'code': account.code,
+                        'name': account.name,
+                        'sub_type': account.sub_type,
+                        'amount': amount
+                    })
+        
+        # Calculate net profit/loss
+        net_profit = total_income - total_expenses
+        
+        # Calculate margins
+        income_margin = (net_profit / total_income * 100) if total_income > 0 else Decimal('0.00')
+        
+        return Response({
+            'from_date': from_date,
+            'to_date': to_date,
+            'income': {
+                'accounts': income_accounts,
+                'total': total_income
+            },
+            'expenses': {
+                'accounts': expense_accounts,
+                'total': total_expenses
+            },
+            'net_profit': net_profit,
+            'net_margin': income_margin
+        })
+    
+    @extend_schema(
+        tags=['Accounting - Reports'],
+        summary='Get balance sheet',
+        description='Returns balance sheet showing assets, liabilities, and equity',
+        parameters=[
+            OpenApiParameter('as_of_date', type=str, description='As of date (YYYY-MM-DD)'),
+        ]
+    )
+    @action(detail=False, methods=['get'])
+    def balance_sheet(self, request):
+        """Get balance sheet report"""
+        as_of_date = request.query_params.get('as_of_date')
+        
+        # Get all active accounts with level > 0 (leaf accounts)
+        accounts = self.get_queryset().filter(
+            status='active',
+            level__gt=0,
+            type__in=['Assets', 'Liabilities', 'Equity']
+        ).order_by('type', 'sub_type', 'code')
+        
+        assets_data = {'current': [], 'fixed': [], 'other': []}
+        liabilities_data = {'current': [], 'long_term': [], 'other': []}
+        equity_data = []
+        
+        total_assets = Decimal('0.00')
+        total_liabilities = Decimal('0.00')
+        total_equity = Decimal('0.00')
+        
+        for account in accounts:
+            # Calculate balance for this account up to as_of_date
+            lines = JournalLine.objects.filter(
+                tenant=request.user.tenant,
+                account=account,
+                journal_entry__status='posted'
+            )
+            
+            if as_of_date:
+                lines = lines.filter(journal_entry__date__lte=as_of_date)
+            
+            # Calculate net balance
+            aggregates = lines.aggregate(
+                total_debit=Sum('debit'),
+                total_credit=Sum('credit')
+            )
+            
+            debit_sum = aggregates['total_debit'] or Decimal('0.00')
+            credit_sum = aggregates['total_credit'] or Decimal('0.00')
+            balance = debit_sum - credit_sum
+            
+            # Skip accounts with zero balance
+            if balance == 0:
+                continue
+            
+            account_data = {
+                'id': account.id,
+                'code': account.code,
+                'name': account.name,
+                'sub_type': account.sub_type,
+                'amount': abs(balance)  # Always show positive amounts
+            }
+            
+            # Categorize by type and sub_type
+            if account.type == 'Assets':
+                # Assets have normal debit balance
+                if balance < 0:
+                    # Contra asset - reduce total
+                    account_data['amount'] = -abs(balance)
+                
+                total_assets += balance
+                
+                # Categorize by sub_type
+                if 'Current' in account.sub_type or 'Cash' in account.sub_type or 'Receivable' in account.sub_type:
+                    assets_data['current'].append(account_data)
+                elif 'Fixed' in account.sub_type or 'Property' in account.sub_type or 'Equipment' in account.sub_type:
+                    assets_data['fixed'].append(account_data)
+                else:
+                    assets_data['other'].append(account_data)
+                    
+            elif account.type == 'Liabilities':
+                # Liabilities have normal credit balance (negative in our calculation)
+                amount = abs(balance)
+                if balance > 0:
+                    # Contra liability
+                    amount = -balance
+                
+                total_liabilities += abs(balance)
+                
+                account_data['amount'] = amount
+                
+                # Categorize by sub_type
+                if 'Current' in account.sub_type or 'Payable' in account.sub_type:
+                    liabilities_data['current'].append(account_data)
+                elif 'Long' in account.sub_type or 'Term' in account.sub_type:
+                    liabilities_data['long_term'].append(account_data)
+                else:
+                    liabilities_data['other'].append(account_data)
+                    
+            elif account.type == 'Equity':
+                # Equity has normal credit balance (negative in our calculation)
+                amount = abs(balance)
+                if balance > 0:
+                    # Contra equity
+                    amount = -balance
+                
+                total_equity += abs(balance)
+                
+                account_data['amount'] = amount
+                equity_data.append(account_data)
+        
+        # Calculate totals for each category
+        total_current_assets = sum(acc['amount'] for acc in assets_data['current'])
+        total_fixed_assets = sum(acc['amount'] for acc in assets_data['fixed'])
+        total_other_assets = sum(acc['amount'] for acc in assets_data['other'])
+        
+        total_current_liabilities = sum(acc['amount'] for acc in liabilities_data['current'])
+        total_long_term_liabilities = sum(acc['amount'] for acc in liabilities_data['long_term'])
+        total_other_liabilities = sum(acc['amount'] for acc in liabilities_data['other'])
+        
+        total_liab_equity = total_liabilities + total_equity
+        is_balanced = abs(total_assets - total_liab_equity) < Decimal('0.01')
+        
+        return Response({
+            'as_of_date': as_of_date,
+            'assets': {
+                'current': assets_data['current'],
+                'fixed': assets_data['fixed'],
+                'other': assets_data['other'],
+                'total_current': total_current_assets,
+                'total_fixed': total_fixed_assets,
+                'total_other': total_other_assets,
+                'total': total_assets
+            },
+            'liabilities': {
+                'current': liabilities_data['current'],
+                'long_term': liabilities_data['long_term'],
+                'other': liabilities_data['other'],
+                'total_current': total_current_liabilities,
+                'total_long_term': total_long_term_liabilities,
+                'total_other': total_other_liabilities,
+                'total': total_liabilities
+            },
+            'equity': {
+                'accounts': equity_data,
+                'total': total_equity
+            },
+            'total_liabilities_equity': total_liab_equity,
+            'is_balanced': is_balanced
+        })
 
 
 @extend_schema_view(
