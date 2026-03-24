@@ -4,7 +4,6 @@ from .views import (
     CategoryViewSet, UnitOfMeasureViewSet, WarehouseViewSet,
     ProductViewSet, StockViewSet, StockMovementViewSet, StockOperationsViewSet
 )
-from .test_views import test_create_product
 
 router = DefaultRouter()
 router.register(r'categories', CategoryViewSet, basename='category')
@@ -17,5 +16,4 @@ router.register(r'operations', StockOperationsViewSet, basename='operations')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('test-create-product/', test_create_product, name='test-create-product'),
 ]

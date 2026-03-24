@@ -60,7 +60,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter categories by current tenant"""
-        return Category.objects.all()
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return Category.objects.filter(tenant=self.request.user.tenant)
+        except AttributeError:
+            pass
+        return Category.objects.none()
     
     def perform_create(self, serializer):
         """Ensure tenant is set when creating category"""
@@ -113,7 +118,12 @@ class UnitOfMeasureViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter units by current tenant"""
-        return UnitOfMeasure.objects.all()
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return UnitOfMeasure.objects.filter(tenant=self.request.user.tenant)
+        except AttributeError:
+            pass
+        return UnitOfMeasure.objects.none()
     
     def perform_create(self, serializer):
         """Ensure tenant is set when creating unit"""
@@ -154,7 +164,12 @@ class WarehouseViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter warehouses by current tenant"""
-        return Warehouse.objects.all()
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return Warehouse.objects.filter(tenant=self.request.user.tenant)
+        except AttributeError:
+            pass
+        return Warehouse.objects.none()
     
     def perform_create(self, serializer):
         """Ensure tenant is set when creating warehouse"""
@@ -210,7 +225,13 @@ class ProductViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter products by current tenant"""
-        return Product.objects.select_related('category', 'unit').all()
+        # Explicitly filter by user's tenant to ensure proper scoping
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return Product.objects.filter(tenant=self.request.user.tenant).select_related('category', 'unit')
+        except AttributeError:
+            pass
+        return Product.objects.none()
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -329,7 +350,12 @@ class StockViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter stocks by current tenant"""
-        return Stock.objects.select_related('product', 'warehouse', 'product__unit').all()
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return Stock.objects.filter(tenant=self.request.user.tenant).select_related('product', 'warehouse', 'product__unit')
+        except AttributeError:
+            pass
+        return Stock.objects.none()
     
     # Disable create, update, delete - stock is managed through operations
     http_method_names = ['get', 'head', 'options']
@@ -359,9 +385,14 @@ class StockMovementViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         """Filter movements by current tenant"""
-        return StockMovement.objects.select_related(
-            'product', 'warehouse', 'from_warehouse', 'to_warehouse', 'performed_by'
-        ).all()
+        try:
+            if self.request.user and self.request.user.is_authenticated and self.request.user.tenant:
+                return StockMovement.objects.filter(tenant=self.request.user.tenant).select_related(
+                    'product', 'warehouse', 'from_warehouse', 'to_warehouse', 'performed_by'
+                )
+        except AttributeError:
+            pass
+        return StockMovement.objects.none()
 
 
 @extend_schema(tags=['Inventory - Operations'])

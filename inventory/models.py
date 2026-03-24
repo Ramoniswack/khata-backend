@@ -94,7 +94,7 @@ class Product(TenantModel):
     )
     unit = models.ForeignKey(
         UnitOfMeasure,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name='products'
     )
     

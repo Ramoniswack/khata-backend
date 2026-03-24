@@ -6,22 +6,13 @@ from rest_framework import permissions
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     """
-    Only ADMIN users can delete products.
-    Other authenticated users can read and create/update.
+    Authenticated users can read, create, update, and delete products.
     """
     
     def has_permission(self, request, view):
-        # Allow read operations for all authenticated users
-        if request.method in permissions.SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        
-        # Allow create/update for authenticated users
-        if request.method in ['POST', 'PUT', 'PATCH']:
-            return request.user and request.user.is_authenticated
-        
-        # Only ADMIN can delete
-        if request.method == 'DELETE':
-            return request.user and request.user.is_authenticated and request.user.role == 'admin'
+        # Allow all operations for authenticated users
+        if request.user and request.user.is_authenticated:
+            return True
         
         return False
 
