@@ -25,7 +25,7 @@ class User(AbstractUser):
     
     tenant = models.ForeignKey(
         'tenants.Tenant',
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name='users',
         null=True,
         blank=True

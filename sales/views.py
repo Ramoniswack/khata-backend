@@ -38,7 +38,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Customer.objects.all()
+        return Customer.objects.filter(tenant=self.request.user.tenant)
     
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -174,7 +174,7 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return SalesOrder.objects.select_related('customer', 'created_by').prefetch_related('lines__product')
+        return SalesOrder.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'created_by').prefetch_related('lines__product')
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -285,27 +285,212 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='dashboard')
     def sales_dashboard(self, request):
         """Sales Dashboard API endpoint - Returns dashboard data"""
-        # TODO: Fix indentation issues and restore full implementation
+        from django.db.models import Sum, Count, Q, F
+        from django.utils import timezone
+        from datetime import timedelta
+        from inventory.models import Product, Stock
+        
+        period = request.query_params.get('period', 'month')
+        tenant = request.user.tenant
+        
+        # Calculate date ranges
+        now = timezone.now()
+        if period == 'today':
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            prev_start = start_date - timedelta(days=1)
+            prev_end = start_date
+        elif period == 'week':
+            start_date = now - timedelta(days=7)
+            prev_start = start_date - timedelta(days=7)
+            prev_end = start_date
+        elif period == 'year':
+            start_date = now - timedelta(days=365)
+            prev_start = start_date - timedelta(days=365)
+            prev_end = start_date
+        else:  # month
+            start_date = now - timedelta(days=30)
+            prev_start = start_date - timedelta(days=30)
+            prev_end = start_date
+        
+        # Get orders for current and previous period
+        current_orders = SalesOrder.objects.filter(
+            tenant=tenant,
+            date__gte=start_date,
+            status__in=['Confirmed', 'Delivered']
+        )
+        
+        previous_orders = SalesOrder.objects.filter(
+            tenant=tenant,
+            date__gte=prev_start,
+            date__lt=prev_end,
+            status__in=['Confirmed', 'Delivered']
+        )
+        
+        # Calculate stats
+        current_revenue = current_orders.aggregate(total=Sum('total'))['total'] or 0
+        previous_revenue = previous_orders.aggregate(total=Sum('total'))['total'] or 0
+        revenue_change = ((current_revenue - previous_revenue) / previous_revenue * 100) if previous_revenue > 0 else 0
+        
+        current_order_count = current_orders.count()
+        previous_order_count = previous_orders.count()
+        orders_change = ((current_order_count - previous_order_count) / previous_order_count * 100) if previous_order_count > 0 else 0
+        
+        # Customer stats
+        current_customers = Customer.objects.filter(tenant=tenant, created_at__gte=start_date).count()
+        previous_customers = Customer.objects.filter(tenant=tenant, created_at__gte=prev_start, created_at__lt=prev_end).count()
+        customers_change = ((current_customers - previous_customers) / previous_customers * 100) if previous_customers > 0 else 0
+        total_customers = Customer.objects.filter(tenant=tenant).count()
+        
+        # Product stats
+        current_products = Product.objects.filter(tenant=tenant, created_at__gte=start_date).count()
+        previous_products = Product.objects.filter(tenant=tenant, created_at__gte=prev_start, created_at__lt=prev_end).count()
+        products_change = ((current_products - previous_products) / previous_products * 100) if previous_products > 0 else 0
+        total_products = Product.objects.filter(tenant=tenant).count()
+        
+        # Revenue data for chart
+        revenue_data = []
+        if period == 'today':
+            # Hourly data for today
+            for hour in range(24):
+                hour_start = start_date + timedelta(hours=hour)
+                hour_end = hour_start + timedelta(hours=1)
+                revenue = SalesOrder.objects.filter(
+                    tenant=tenant,
+                    date__gte=hour_start,
+                    date__lt=hour_end,
+                    status__in=['Confirmed', 'Delivered']
+                ).aggregate(total=Sum('total'))['total'] or 0
+                revenue_data.append({
+                    'time': f"{hour:02d}:00",
+                    'value': float(revenue)
+                })
+        elif period == 'week':
+            # Daily data for week
+            for day in range(7):
+                day_start = start_date + timedelta(days=day)
+                day_end = day_start + timedelta(days=1)
+                revenue = SalesOrder.objects.filter(
+                    tenant=tenant,
+                    date__gte=day_start,
+                    date__lt=day_end,
+                    status__in=['Confirmed', 'Delivered']
+                ).aggregate(total=Sum('total'))['total'] or 0
+                revenue_data.append({
+                    'time': day_start.strftime('%a'),
+                    'value': float(revenue)
+                })
+        elif period == 'year':
+            # Monthly data for year
+            for month in range(12):
+                month_start = start_date + timedelta(days=month*30)
+                month_end = month_start + timedelta(days=30)
+                revenue = SalesOrder.objects.filter(
+                    tenant=tenant,
+                    date__gte=month_start,
+                    date__lt=month_end,
+                    status__in=['Confirmed', 'Delivered']
+                ).aggregate(total=Sum('total'))['total'] or 0
+                revenue_data.append({
+                    'time': month_start.strftime('%b'),
+                    'value': float(revenue)
+                })
+        else:  # month
+            # Daily data for month (show every 3 days)
+            for day in range(0, 30, 3):
+                day_start = start_date + timedelta(days=day)
+                day_end = day_start + timedelta(days=3)
+                revenue = SalesOrder.objects.filter(
+                    tenant=tenant,
+                    date__gte=day_start,
+                    date__lt=day_end,
+                    status__in=['Confirmed', 'Delivered']
+                ).aggregate(total=Sum('total'))['total'] or 0
+                revenue_data.append({
+                    'time': day_start.strftime('%d %b'),
+                    'value': float(revenue)
+                })
+        
+        # Recent orders
+        recent_orders_qs = SalesOrder.objects.filter(tenant=tenant).select_related('customer').order_by('-created_at')[:5]
+        recent_orders = [{
+            'id': order.order_number,
+            'customer': order.customer.name if order.customer else 'N/A',
+            'amount': f"Rs. {order.total:,.0f}",
+            'status': order.status
+        } for order in recent_orders_qs]
+        
+        # Top products (by quantity sold)
+        from sales.models import SalesOrderLine
+        top_products_data = SalesOrderLine.objects.filter(
+            sales_order__tenant=tenant,
+            sales_order__status__in=['Confirmed', 'Delivered'],
+            sales_order__date__gte=start_date
+        ).values('product__name').annotate(
+            total_qty=Sum('quantity')
+        ).order_by('-total_qty')[:5]
+        
+        max_sales = top_products_data[0]['total_qty'] if top_products_data else 1
+        top_products = [{
+            'name': item['product__name'] or 'Unknown Product',
+            'sales': int(item['total_qty']),
+            'max': int(max_sales)
+        } for item in top_products_data]
+        
+        # Recent customers
+        recent_customers_qs = Customer.objects.filter(tenant=tenant).order_by('-created_at')[:5]
+        recent_customers = [{
+            'name': customer.name,
+            'email': customer.email or 'No email',
+            'initials': ''.join([word[0].upper() for word in customer.name.split()[:2]]),
+            'joined': customer.created_at.strftime('%d %b')
+        } for customer in recent_customers_qs]
+        
+        # Inventory summary
+        # Note: Product model doesn't have stock_quantity field, it uses Stock model
+        # We need to calculate stock status differently
+        from inventory.models import Stock
+        
+        products_qs = Product.objects.filter(tenant=tenant)
+        total_skus = products_qs.count()
+        
+        # Calculate stock status for each product
+        in_stock = 0
+        low_stock = 0
+        out_of_stock = 0
+        
+        for product in products_qs:
+            total_stock = Stock.objects.filter(
+                tenant=tenant,
+                product=product
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+            
+            if total_stock == 0:
+                out_of_stock += 1
+            elif total_stock <= product.reorder_level:
+                low_stock += 1
+            else:
+                in_stock += 1
+        
         return Response({
             'stats': {
-                'revenue': "Rs. 0",
-                'revenueChange': 0,
-                'orders': 0,
-                'ordersChange': 0,
-                'customers': 0,
-                'customersChange': 0,
-                'products': 0,
-                'productsChange': 0,
+                'revenue': f"Rs. {current_revenue:,.0f}",
+                'revenueChange': round(revenue_change, 1),
+                'orders': current_order_count,
+                'ordersChange': round(orders_change, 1),
+                'customers': total_customers,
+                'customersChange': round(customers_change, 1),
+                'products': total_products,
+                'productsChange': round(products_change, 1),
             },
-            'revenueData': [],
-            'recentOrders': [],
-            'topProducts': [],
-            'recentCustomers': [],
+            'revenueData': revenue_data,
+            'recentOrders': recent_orders,
+            'topProducts': top_products,
+            'recentCustomers': recent_customers,
             'inventorySummary': {
-                'inStock': 0,
-                'lowStock': 0,
-                'outOfStock': 0,
-                'totalSKUs': 0
+                'inStock': in_stock,
+                'lowStock': low_stock,
+                'outOfStock': out_of_stock,
+                'totalSKUs': total_skus
             }
         })
 
@@ -333,7 +518,7 @@ class QuotationViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Quotation.objects.select_related('customer', 'created_by').prefetch_related('lines__product')
+        return Quotation.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'created_by').prefetch_related('lines__product')
     
     def perform_create(self, serializer):
         from django.db import transaction
@@ -448,7 +633,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     """ViewSet for Invoice CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return Invoice.objects.select_related('customer', 'sales_order', 'created_by')
+        return Invoice.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'sales_order', 'created_by')
     serializer_class = InvoiceSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ['status', 'customer']
@@ -459,25 +644,44 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         from django.db import transaction
         from django.db.utils import IntegrityError
+        import random
         
         # Auto-generate invoice number if not provided
         if 'invoice_number' not in serializer.validated_data or not serializer.validated_data.get('invoice_number'):
-            max_retries = 5
+            max_retries = 10
+            last_attempt_number = None
+            
             for attempt in range(max_retries):
                 try:
                     with transaction.atomic():
-                        last_invoice = Invoice.objects.filter(
+                        # Get all invoices for this tenant with locking
+                        invoices = Invoice.objects.filter(
                             tenant=self.request.user.tenant
-                        ).select_for_update().order_by('-id').first()
+                        ).select_for_update().values_list('invoice_number', flat=True)
                         
-                        if last_invoice and last_invoice.invoice_number.startswith('INV-'):
-                            try:
-                                last_num = int(last_invoice.invoice_number.split('-')[1])
-                                invoice_number = f"INV-{str(last_num + 1).zfill(4)}"
-                            except:
-                                invoice_number = "INV-0001"
+                        # Find the highest number
+                        max_num = 0
+                        for inv_num in invoices:
+                            if inv_num and inv_num.startswith('INV-'):
+                                try:
+                                    num = int(inv_num.split('-')[1])
+                                    if num > max_num:
+                                        max_num = num
+                                except (ValueError, IndexError):
+                                    continue
+                        
+                        # Generate next number with small random offset to avoid collisions
+                        if attempt > 0:
+                            # Add small random offset on retry
+                            invoice_number = f"INV-{str(max_num + 1 + random.randint(0, attempt)).zfill(4)}"
                         else:
-                            invoice_number = "INV-0001"
+                            invoice_number = f"INV-{str(max_num + 1).zfill(4)}"
+                        
+                        # Avoid using the same number twice in a row
+                        if invoice_number == last_attempt_number:
+                            invoice_number = f"INV-{str(max_num + 2).zfill(4)}"
+                        
+                        last_attempt_number = invoice_number
                         
                         serializer.save(
                             tenant=self.request.user.tenant,
@@ -486,9 +690,18 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                         )
                         break  # Success, exit loop
                 except IntegrityError as e:
-                    if attempt == max_retries - 1:
+                    if 'invoice_number' in str(e):
+                        if attempt == max_retries - 1:
+                            # Last attempt failed, raise a user-friendly error
+                            from rest_framework.exceptions import ValidationError
+                            raise ValidationError({
+                                'invoice_number': 'Unable to generate unique invoice number. Please try again.'
+                            })
+                        # Retry with next attempt
+                        continue
+                    else:
+                        # Different integrity error, don't retry
                         raise
-                    continue
         else:
             serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
 
@@ -502,6 +715,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def record_payment(self, request, pk=None):
         """Record a payment for an invoice"""
+        from decimal import Decimal
+        
         invoice = self.get_object()
         payment_amount = request.data.get('amount')
         
@@ -512,8 +727,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            payment_amount = float(payment_amount)
-        except ValueError:
+            payment_amount = Decimal(str(payment_amount))
+        except (ValueError, TypeError):
             return Response(
                 {'error': 'Invalid payment amount'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -557,7 +772,7 @@ class CreditNoteViewSet(viewsets.ModelViewSet):
     """ViewSet for Credit Note CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return CreditNote.objects.select_related('customer', 'invoice', 'created_by')
+        return CreditNote.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'invoice', 'created_by')
     serializer_class = CreditNoteSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ['status', 'customer', 'invoice']

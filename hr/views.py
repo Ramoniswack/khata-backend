@@ -32,7 +32,7 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Department.objects.all()
+        return Department.objects.filter(tenant=self.request.user.tenant)
     
     def perform_create(self, serializer):
         """Set tenant when creating department"""
@@ -65,7 +65,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Employee.objects.select_related('department', 'user')
+        return Employee.objects.filter(tenant=self.request.user.tenant).select_related('department', 'user')
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -154,7 +154,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Attendance.objects.select_related('employee', 'employee__department')
+        return Attendance.objects.filter(tenant=self.request.user.tenant).select_related('employee', 'employee__department')
     
     def perform_create(self, serializer):
         """Set tenant when creating attendance"""
@@ -301,7 +301,7 @@ class LeaveTypeViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return LeaveType.objects.all()
+        return LeaveType.objects.filter(tenant=self.request.user.tenant)
     
     def perform_create(self, serializer):
         """Set tenant when creating leave type"""
@@ -327,7 +327,7 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return LeaveRequest.objects.select_related('employee', 'leave_type', 'approved_by')
+        return LeaveRequest.objects.filter(tenant=self.request.user.tenant).select_related('employee', 'leave_type', 'approved_by')
     
     def perform_create(self, serializer):
         """Set tenant and employee when creating leave request"""
@@ -437,7 +437,7 @@ class PayrollViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filter by current tenant"""
-        return Payroll.objects.select_related('employee', 'employee__department')
+        return Payroll.objects.filter(tenant=self.request.user.tenant).select_related('employee', 'employee__department')
     
     def perform_create(self, serializer):
         """Set tenant when creating payroll"""

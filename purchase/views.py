@@ -45,7 +45,7 @@ class SupplierViewSet(viewsets.ModelViewSet):
     """ViewSet for Supplier CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return Supplier.objects.all()
+        return Supplier.objects.filter(tenant=self.request.user.tenant)
     
     serializer_class = SupplierSerializer
     permission_classes = [IsAuthenticated]
@@ -92,7 +92,7 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
     """ViewSet for Purchase Request CRUD operations with 3-step approval workflow"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return PurchaseRequest.objects.select_related(
+        return PurchaseRequest.objects.filter(tenant=self.request.user.tenant).select_related(
         'requested_by', 'approved_by'
     ).prefetch_related('lines__product')
     permission_classes = [IsAuthenticated]
@@ -288,7 +288,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     """ViewSet for Purchase Order CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return PurchaseOrder.objects.select_related(
+        return PurchaseOrder.objects.filter(tenant=self.request.user.tenant).select_related(
         'supplier', 'purchase_request', 'created_by'
     ).prefetch_related('lines__product')
     permission_classes = [IsAuthenticated]
@@ -476,7 +476,7 @@ class PurchaseInvoiceViewSet(viewsets.ModelViewSet):
     """ViewSet for Purchase Invoice CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return PurchaseInvoice.objects.select_related(
+        return PurchaseInvoice.objects.filter(tenant=self.request.user.tenant).select_related(
         'supplier', 'purchase_order', 'created_by'
     )
     serializer_class = PurchaseInvoiceSerializer
@@ -575,7 +575,7 @@ class DebitNoteViewSet(viewsets.ModelViewSet):
     """ViewSet for Debit Note CRUD operations"""
     def get_queryset(self):
         """Filter by current tenant"""
-        return DebitNote.objects.select_related(
+        return DebitNote.objects.filter(tenant=self.request.user.tenant).select_related(
         'supplier', 'invoice', 'created_by'
     )
     serializer_class = DebitNoteSerializer

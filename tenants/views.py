@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from .models import Tenant
-from .serializers import TenantSerializer, TenantProfileSerializer, TenantCreateSerializer
+from .invitation_models import OrganizationInvitation
+from .serializers import TenantSerializer, TenantProfileSerializer, TenantCreateSerializer, OrganizationInvitationSerializer, InvitationResponseSerializer
 
 
 class TenantViewSet(viewsets.ModelViewSet):
@@ -12,10 +13,26 @@ class TenantViewSet(viewsets.ModelViewSet):
     ViewSet for managing tenants
     """
     def get_queryset(self):
-        """Filter tenants - authenticated users see only tenants they explicitly created (not from registration)"""
+        """
+        Filter tenants - authenticated users see all tenants they are members of
+        (excluding tenants created from registration)
+        """
         if self.request.user.is_authenticated:
-            # Return only tenants created explicitly (not from registration)
-            return Tenant.objects.filter(created_by=self.request.user, created_from_registration=False)
+            # Import here to avoid circular import
+            from .membership_models import UserTenantMembership
+            
+            # Get all tenant IDs where user has membership
+            membership_tenant_ids = UserTenantMembership.objects.filter(
+                user=self.request.user
+            ).values_list('tenant_id', flat=True)
+            
+            # Return tenants where user has membership OR is the creator
+            # AND the tenant was not created from registration
+            from django.db.models import Q
+            return Tenant.objects.filter(
+                Q(id__in=membership_tenant_ids) | Q(created_by=self.request.user),
+                created_from_registration=False
+            ).distinct()
         # For unauthenticated users (for create action), return none
         return Tenant.objects.none()
     serializer_class = TenantSerializer
@@ -36,6 +53,9 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Associate the created tenant with the current user if authenticated"""
+        # Import here to avoid circular import
+        from .membership_models import UserTenantMembership
+        
         # Save tenant with created_by field and created_from_registration=False
         tenant = serializer.save(
             created_by=self.request.user if self.request.user.is_authenticated else None,
@@ -49,8 +69,60 @@ class TenantViewSet(viewsets.ModelViewSet):
             if not self.request.user.role or self.request.user.role == 'viewer':
                 self.request.user.role = 'admin'
             self.request.user.save()
+            
+            # Create membership record
+            UserTenantMembership.objects.create(
+                user=self.request.user,
+                tenant=tenant,
+                role='admin'
+            )
         
         return tenant
+    
+    def perform_destroy(self, instance):
+        """
+        Delete tenant and handle cleanup
+        - Only admins of the organization can delete it
+        - Unassign all users from this tenant
+        - Delete all related data (handled by CASCADE)
+        """
+        from django.contrib.auth import get_user_model
+        from rest_framework.exceptions import PermissionDenied
+        from .membership_models import UserTenantMembership
+        
+        User = get_user_model()
+        
+        # Verify user is authenticated
+        if not self.request.user or not self.request.user.is_authenticated:
+            raise PermissionDenied("Authentication required")
+        
+        # Check if user is admin of this organization through membership
+        membership = UserTenantMembership.objects.filter(
+            user=self.request.user,
+            tenant=instance,
+            role='admin'
+        ).first()
+        
+        # Also check if user is the creator
+        is_creator = instance.created_by == self.request.user
+        
+        if not membership and not is_creator:
+            raise PermissionDenied("You must be an admin of this organization to delete it")
+        
+        # If user has membership but not admin role
+        if membership and membership.role != 'admin' and not is_creator:
+            raise PermissionDenied("Only organization admins can delete the organization")
+        
+        # Unassign all users who have this as their primary tenant
+        users_count = User.objects.filter(tenant=instance).count()
+        if users_count > 0:
+            User.objects.filter(tenant=instance).update(tenant=None)
+        
+        # Delete all memberships for this tenant
+        UserTenantMembership.objects.filter(tenant=instance).delete()
+        
+        # Delete the tenant (CASCADE will handle related objects)
+        instance.delete()
     
     @extend_schema(
         summary='Get tenant profile by slug',
@@ -172,4 +244,149 @@ class TenantViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         
+        return Response(serializer.data)
+
+
+
+@extend_schema(tags=['Organization Invitations'])
+class OrganizationInvitationViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing organization invitations
+    """
+    serializer_class = OrganizationInvitationSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """
+        Return invitations based on user role:
+        - Invitations sent by user's organization (if user is admin)
+        - Invitations received by the user
+        """
+        user = self.request.user
+        
+        # Get invitations received by this user
+        received = OrganizationInvitation.objects.filter(invited_user=user)
+        
+        # If user is admin of an organization, also show invitations sent by their org
+        if user.tenant and user.is_admin:
+            sent = OrganizationInvitation.objects.filter(tenant=user.tenant)
+            return (received | sent).distinct()
+        
+        return received
+    
+    def perform_create(self, serializer):
+        """Create invitation - admins and managers can invite users"""
+        user = self.request.user
+        
+        # Check if user is part of an organization
+        if not user.tenant:
+            raise PermissionError("You must be part of an organization to invite users")
+        
+        # Check if user is admin or manager
+        if not (user.is_admin or user.is_manager):
+            raise PermissionError("Only admins and managers can invite users to the organization")
+        
+        # Set tenant to user's primary organization
+        serializer.save(tenant=user.tenant, invited_by=user)
+    
+    @extend_schema(
+        request=InvitationResponseSerializer,
+        responses={200: OrganizationInvitationSerializer}
+    )
+    @action(detail=True, methods=['post'])
+    def respond(self, request, pk=None):
+        """Accept or decline an invitation"""
+        invitation = self.get_object()
+        
+        # Check if user is the invited user
+        if invitation.invited_user != request.user:
+            return Response(
+                {'error': 'You can only respond to your own invitations'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = InvitationResponseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        action_type = serializer.validated_data['action']
+        
+        try:
+            if action_type == 'accept':
+                invitation.accept()
+                message = f'You have joined {invitation.tenant.name} as {invitation.get_role_display()}'
+            else:
+                invitation.decline()
+                message = 'Invitation declined'
+            
+            return Response({
+                'message': message,
+                'invitation': OrganizationInvitationSerializer(invitation).data
+            })
+        
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel an invitation (by inviter/admin)"""
+        invitation = self.get_object()
+        
+        # Check if user is admin of the organization
+        if not request.user.tenant or request.user.tenant != invitation.tenant:
+            return Response(
+                {'error': 'You can only cancel invitations from your organization'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not request.user.is_admin:
+            return Response(
+                {'error': 'Only admins can cancel invitations'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            invitation.cancel()
+            return Response({
+                'message': 'Invitation cancelled',
+                'invitation': OrganizationInvitationSerializer(invitation).data
+            })
+        except ValueError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=False, methods=['get'])
+    def received(self, request):
+        """Get invitations received by the current user"""
+        invitations = OrganizationInvitation.objects.filter(
+            invited_user=request.user,
+            status='pending'
+        )
+        serializer = self.get_serializer(invitations, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def sent(self, request):
+        """Get invitations sent by organizations where user is admin or manager"""
+        # Import here to avoid circular import
+        from .membership_models import UserTenantMembership
+        
+        # Get all tenants where user is admin or manager
+        admin_manager_memberships = UserTenantMembership.objects.filter(
+            user=request.user,
+            role__in=['admin', 'manager']
+        ).values_list('tenant_id', flat=True)
+        
+        if not admin_manager_memberships:
+            return Response([])
+        
+        # Get invitations from those tenants
+        invitations = OrganizationInvitation.objects.filter(
+            tenant_id__in=admin_manager_memberships
+        )
+        serializer = self.get_serializer(invitations, many=True)
         return Response(serializer.data)

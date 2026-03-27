@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from django.db import models
 from .models import User, AuditLog
 from .serializers import UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer, AuditLogSerializer
 from .permissions import IsAdminOrManager
@@ -87,15 +88,29 @@ class UserViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['role', 'is_active']
     search_fields = ['username', 'email', 'first_name', 'last_name']
-    ordering_fields = ['username', 'created_at', 'last_login']
-    ordering = ['-created_at']
+    ordering_fields = ['username', 'date_joined', 'last_login']
+    ordering = ['-date_joined']
     
     def get_queryset(self):
-        """Filter by current tenant"""
-        if self.request.user.tenant:
-            return User.objects.filter(tenant=self.request.user.tenant)
-        # If user has no tenant, return empty queryset
-        return User.objects.none()
+        """Filter by current tenant - includes both direct tenant and membership"""
+        if not self.request.user.tenant:
+            return User.objects.none()
+        
+        # Get users who are either:
+        # 1. Directly assigned to this tenant (User.tenant)
+        # 2. Members of this tenant through UserTenantMembership
+        from tenants.membership_models import UserTenantMembership
+        
+        # Get user IDs from memberships
+        member_user_ids = UserTenantMembership.objects.filter(
+            tenant=self.request.user.tenant
+        ).values_list('user_id', flat=True)
+        
+        # Return users who are either directly assigned OR members
+        return User.objects.filter(
+            models.Q(tenant=self.request.user.tenant) | 
+            models.Q(id__in=member_user_ids)
+        ).distinct()
     
     def perform_create(self, serializer):
         """Assign user to current tenant when creating"""
@@ -135,3 +150,188 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if not self.request.user.tenant:
             return AuditLog.objects.none()
         return AuditLog.objects.filter(tenant=self.request.user.tenant).select_related('user')
+
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework import permissions as drf_permissions
+from .permission_models import RolePermission, get_default_permissions, initialize_tenant_permissions
+from .serializers import PermissionsMatrixSerializer, UpdatePermissionsSerializer
+from .permissions import IsAdminOrManager
+
+
+@extend_schema(
+    tags=['Permissions'],
+    summary='Get role permissions matrix',
+    description='Get the complete permissions matrix for all roles in the current tenant.',
+    responses={200: PermissionsMatrixSerializer}
+)
+@api_view(['GET'])
+@permission_classes([drf_permissions.IsAuthenticated, IsAdminOrManager])
+def get_permissions(request):
+    """
+    Get the complete permissions matrix for all roles.
+    Returns permissions in the format expected by the frontend.
+    """
+    tenant = request.user.tenant
+    
+    if not tenant:
+        return Response(
+            {'detail': 'You must be assigned to an organization to view permissions.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Get all permissions for this tenant
+    permissions = RolePermission.objects.filter(tenant=tenant)
+    
+    # If no permissions exist, initialize with defaults
+    if not permissions.exists():
+        initialize_tenant_permissions(tenant)
+        permissions = RolePermission.objects.filter(tenant=tenant)
+    
+    # Build the permissions matrix
+    matrix = {
+        'Admin': {},
+        'Manager': {},
+        'Supervisor': {},
+        'Accountant': {},
+        'Viewer': {},
+    }
+    
+    # Map database role names to display names
+    role_map = {
+        'admin': 'Admin',
+        'manager': 'Manager',
+        'supervisor': 'Supervisor',
+        'accountant': 'Accountant',
+        'viewer': 'Viewer',
+    }
+    
+    # Map database module names to display names
+    module_map = {
+        'sales': 'Sales',
+        'purchase': 'Purchase',
+        'inventory': 'Inventory',
+        'accounting': 'Accounting',
+        'construction': 'Construction',
+        'reports': 'Reports',
+        'settings': 'Settings',
+        'hr': 'HR',
+        'pos': 'POS',
+    }
+    
+    # Map database action names to display names
+    action_map = {
+        'view': 'View',
+        'create': 'Create',
+        'edit': 'Edit',
+        'delete': 'Delete',
+        'export': 'Export',
+        'approve': 'Approve',
+    }
+    
+    for perm in permissions:
+        role_display = role_map.get(perm.role, perm.role)
+        module_display = module_map.get(perm.module, perm.module)
+        action_display = action_map.get(perm.action, perm.action)
+        
+        key = f"{module_display}-{action_display}"
+        matrix[role_display][key] = perm.allowed
+    
+    return Response(matrix, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['Permissions'],
+    summary='Update role permissions',
+    description='Update the permissions matrix for all roles in the current tenant.',
+    request=UpdatePermissionsSerializer,
+    responses={200: {'description': 'Permissions updated successfully'}}
+)
+@api_view(['POST'])
+@permission_classes([drf_permissions.IsAuthenticated, IsAdminOrManager])
+def update_permissions(request):
+    """
+    Update the permissions matrix for all roles.
+    Accepts the complete permissions matrix from the frontend.
+    """
+    tenant = request.user.tenant
+    
+    if not tenant:
+        return Response(
+            {'detail': 'You must be assigned to an organization to update permissions.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    serializer = UpdatePermissionsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Map display names back to database names
+    role_map = {
+        'Admin': 'admin',
+        'Manager': 'manager',
+        'Supervisor': 'supervisor',
+        'Accountant': 'accountant',
+        'Viewer': 'viewer',
+    }
+    
+    module_map = {
+        'Sales': 'sales',
+        'Purchase': 'purchase',
+        'Inventory': 'inventory',
+        'Accounting': 'accounting',
+        'Construction': 'construction',
+        'Reports': 'reports',
+        'Settings': 'settings',
+        'HR': 'hr',
+        'POS': 'pos',
+    }
+    
+    action_map = {
+        'View': 'view',
+        'Create': 'create',
+        'Edit': 'edit',
+        'Delete': 'delete',
+        'Export': 'export',
+        'Approve': 'approve',
+    }
+    
+    # Process each role's permissions
+    permissions_to_update = []
+    
+    for role_display, perms in serializer.validated_data.items():
+        role_db = role_map.get(role_display)
+        if not role_db:
+            continue
+        
+        for key, allowed in perms.items():
+            # Parse the key (e.g., "Sales-View" -> module="sales", action="view")
+            parts = key.split('-')
+            if len(parts) != 2:
+                continue
+            
+            module_display, action_display = parts
+            module_db = module_map.get(module_display)
+            action_db = action_map.get(action_display)
+            
+            if not module_db or not action_db:
+                continue
+            
+            # Update or create the permission
+            perm, created = RolePermission.objects.update_or_create(
+                tenant=tenant,
+                role=role_db,
+                module=module_db,
+                action=action_db,
+                defaults={'allowed': allowed}
+            )
+            permissions_to_update.append(perm)
+    
+    return Response(
+        {
+            'message': 'Permissions updated successfully',
+            'updated_count': len(permissions_to_update)
+        },
+        status=status.HTTP_200_OK
+    )

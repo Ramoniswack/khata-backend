@@ -19,6 +19,9 @@ class Tenant(models.Model):
         ('construction', 'Construction'),
         ('hardware', 'Hardware'),
         ('retail', 'Retail'),
+        ('wholesale', 'Wholesale'),
+        ('manufacturing', 'Manufacturing'),
+        ('services', 'Services'),
         ('other', 'Other'),
     ]
     
@@ -97,3 +100,8 @@ class Tenant(models.Model):
         if module_name in self.active_modules:
             self.active_modules.remove(module_name)
             self.save()
+
+
+# Import invitation and membership models
+from .invitation_models import OrganizationInvitation
+from .membership_models import UserTenantMembership

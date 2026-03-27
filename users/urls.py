@@ -2,7 +2,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.utils import extend_schema
-from .views import RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView, AuditLogViewSet
+from .views import (
+    RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView, 
+    AuditLogViewSet, get_permissions, update_permissions
+)
 
 # Router for ViewSets
 router = DefaultRouter()
@@ -21,5 +24,7 @@ urlpatterns = [
     path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', UserProfileView.as_view(), name='user_profile'),
+    path('permissions/', get_permissions, name='get_permissions'),
+    path('permissions/update/', update_permissions, name='update_permissions'),
     path('', include(router.urls)),
 ]
