@@ -107,8 +107,8 @@ class SiteViewSet(viewsets.ModelViewSet):
             'site_id': str(site.id),
             'site_name': site.name,
             'location': site.location,
-            'client_name': site.client_name,
-            'manager': site.manager.username,
+            'client_name': site.client_name or '',
+            'manager': site.manager.name if site.manager else '',
             'status': site.status,
             
             # Budget

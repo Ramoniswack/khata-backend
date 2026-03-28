@@ -55,12 +55,16 @@ class TenantViewSet(viewsets.ModelViewSet):
         """Associate the created tenant with the current user if authenticated"""
         # Import here to avoid circular import
         from .membership_models import UserTenantMembership
+        from users.permission_models import initialize_tenant_permissions
         
         # Save tenant with created_by field and created_from_registration=False
         tenant = serializer.save(
             created_by=self.request.user if self.request.user.is_authenticated else None,
             created_from_registration=False  # Explicitly created tenant
         )
+        
+        # Initialize default permissions for the new tenant
+        initialize_tenant_permissions(tenant)
         
         # If user is authenticated, assign this tenant as their active tenant
         if self.request.user.is_authenticated:

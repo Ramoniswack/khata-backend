@@ -272,6 +272,10 @@ class RegisterSerializer(serializers.ModelSerializer):
                 created_from_registration=True  # Mark as registration tenant
             )
             
+            # Initialize default permissions for the new tenant
+            from .permission_models import initialize_tenant_permissions
+            initialize_tenant_permissions(tenant)
+            
             # Create user as admin of the new tenant
             user = User.objects.create_user(
                 **validated_data,

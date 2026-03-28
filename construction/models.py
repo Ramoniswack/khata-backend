@@ -35,9 +35,10 @@ class Site(TenantModel):
     
     # Management
     manager = models.ForeignKey(
-        'users.User',
+        'hr.Employee',
         on_delete=models.PROTECT,
-        related_name='managed_sites'
+        related_name='managed_sites',
+        help_text='Employee assigned as site manager'
     )
     
     # Status
@@ -125,6 +126,10 @@ class Worker(TenantModel):
         ('engineer', 'Engineer'),
         ('supervisor', 'Supervisor'),
         ('helper', 'Helper'),
+        ('painter', 'Painter'),
+        ('welder', 'Welder'),
+        ('driver', 'Driver'),
+        ('operator', 'Equipment Operator'),
         ('other', 'Other'),
     ]
     
@@ -318,7 +323,10 @@ class MaterialConsumption(TenantModel):
     daily_log = models.ForeignKey(
         DailyLog,
         on_delete=models.CASCADE,
-        related_name='material_consumptions'
+        related_name='material_consumptions',
+        null=True,
+        blank=True,
+        help_text='Optional: Link to daily log if consumed as part of daily reporting'
     )
     site = models.ForeignKey(
         Site,
@@ -398,7 +406,18 @@ class MaterialConsumption(TenantModel):
         stock.quantity -= self.quantity
         stock.save()
         
+        # Determine who performed the action
+        performed_by = None
+        if self.daily_log and self.daily_log.submitted_by:
+            performed_by = self.daily_log.submitted_by
+        
         # Create stock movement record (audit trail)
+        notes = f'Material consumption at {self.site.name}'
+        if self.daily_log:
+            notes += f' - Daily log: {self.daily_log.date}'
+        if self.notes:
+            notes += f' - {self.notes}'
+        
         StockMovement.objects.create(
             tenant=self.tenant,
             product=self.product,
@@ -408,8 +427,8 @@ class MaterialConsumption(TenantModel):
             reference_type='construction_consumption',
             reference_id=self.id,
             reason=f'Material consumption at {self.site.name}',
-            notes=f'Daily log: {self.daily_log.date}',
-            performed_by=self.daily_log.submitted_by
+            notes=notes,
+            performed_by=performed_by
         )
         
         # Create accounting journal entry
