@@ -10,6 +10,6 @@ env/
 *.swp
 *.swo
 media/
-staticfiles/
 BackendDoc/
 tests/
+scripts/
