@@ -46,6 +46,30 @@ class Tenant(models.Model):
     phone = models.CharField(max_length=20, blank=True)
     address = models.TextField(blank=True)
     
+    # Accounting Details
+    accounting_start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when accounting records start for this organization"
+    )
+    vat_registered = models.BooleanField(
+        default=False,
+        help_text="Whether the organization is registered for VAT"
+    )
+    
+    # Workspace Details
+    workspace_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Custom workspace name (defaults to organization name if not provided)"
+    )
+    logo = models.ImageField(
+        upload_to='tenant_logos/',
+        null=True,
+        blank=True,
+        help_text="Organization logo"
+    )
+    
     # Subscription & Status
     is_active = models.BooleanField(default=True)
     plan_type = models.CharField(max_length=20, choices=PLAN_CHOICES, default='free')

@@ -78,7 +78,7 @@ class Warehouse(TenantModel):
 
 class Product(TenantModel):
     """
-    Product model with automatic tenant scoping.
+    Product model with automatic tenant scoping and price history tracking.
     """
     name = models.CharField(max_length=255)
     sku = models.CharField(max_length=100)
@@ -129,6 +129,60 @@ class Product(TenantModel):
         return self.stocks.aggregate(
             total=models.Sum('quantity')
         )['total'] or 0
+    
+    def get_price_for_customer(self, customer, quantity=1, date=None):
+        """
+        Get the applicable price for a customer considering:
+        1. Customer-specific pricing (highest priority)
+        2. Bulk pricing (if no customer-specific price)
+        3. Base selling price (fallback)
+        """
+        from inventory.pricing_models import CustomerSpecificPrice
+        from inventory.bulk_pricing_models import BulkPricing
+        
+        # Check customer-specific pricing first
+        customer_price = CustomerSpecificPrice.get_price_for_customer(
+            customer, self, quantity, date
+        )
+        if customer_price is not None:
+            return customer_price
+        
+        # Check bulk pricing
+        bulk_price = BulkPricing.get_price_for_quantity(self, quantity)
+        if bulk_price != self.selling_price:
+            return bulk_price
+        
+        # Return base selling price
+        return self.selling_price
+    
+    def save(self, *args, **kwargs):
+        """Override save to track price changes"""
+        # Track if this is an update (has pk) and prices changed
+        if self.pk:
+            try:
+                old_product = Product.objects.get(pk=self.pk)
+                old_cost = old_product.cost_price
+                old_selling = old_product.selling_price
+                
+                # Save the product first
+                super().save(*args, **kwargs)
+                
+                # Create price history if prices changed
+                if old_cost != self.cost_price or old_selling != self.selling_price:
+                    from inventory.pricing_models import PriceHistory
+                    PriceHistory.create_from_product_change(
+                        product=self,
+                        old_cost=old_cost,
+                        old_selling=old_selling,
+                        reason=kwargs.get('price_change_reason', ''),
+                        changed_by=kwargs.get('changed_by', None)
+                    )
+            except Product.DoesNotExist:
+                # Product doesn't exist yet, just save
+                super().save(*args, **kwargs)
+        else:
+            # New product, just save
+            super().save(*args, **kwargs)
 
 
 class Stock(TenantModel):

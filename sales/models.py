@@ -189,9 +189,9 @@ class SalesOrderLine(TenantModel):
     def save(self, *args, **kwargs):
         # Calculate amount before saving
         base_amount = self.quantity * self.unit_price
-        discount_amount = base_amount * (self.discount_percent / 100)
+        discount_amount = base_amount * (self.discount_percent / Decimal('100'))
         taxable_amount = base_amount - discount_amount
-        tax_amount = taxable_amount * (self.tax_percent / 100)
+        tax_amount = taxable_amount * (self.tax_percent / Decimal('100'))
         self.amount = taxable_amount + tax_amount
         super().save(*args, **kwargs)
 

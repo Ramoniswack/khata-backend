@@ -12,7 +12,8 @@ class TenantSerializer(serializers.ModelSerializer):
         model = Tenant
         fields = [
             'id', 'name', 'slug', 'business_type', 'owner_name', 'email',
-            'phone', 'address', 'is_active', 'plan_type', 'active_modules',
+            'phone', 'address', 'accounting_start_date', 'vat_registered',
+            'workspace_name', 'logo', 'is_active', 'plan_type', 'active_modules',
             'created_at', 'updated_at', 'created_by', 'user_role'
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at', 'created_by', 'user_role']
@@ -52,7 +53,8 @@ class TenantCreateSerializer(serializers.ModelSerializer):
         model = Tenant
         fields = [
             'id', 'slug', 'name', 'business_type', 'owner_name', 'email',
-            'phone', 'address', 'active_modules'
+            'phone', 'address', 'accounting_start_date', 'vat_registered',
+            'workspace_name', 'logo', 'active_modules'
         ]
         read_only_fields = ['id', 'slug']
     

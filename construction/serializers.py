@@ -147,6 +147,8 @@ class DailyLogSerializer(serializers.ModelSerializer):
     submitted_by_name = serializers.CharField(source='submitted_by.username', read_only=True)
     reviewed_by_name = serializers.CharField(source='reviewed_by.username', read_only=True)
     material_consumptions = MaterialConsumptionSerializer(many=True, read_only=True)
+    is_editable = serializers.SerializerMethodField()
+    hours_until_immutable = serializers.SerializerMethodField()
     
     class Meta:
         model = DailyLog
@@ -155,12 +157,22 @@ class DailyLogSerializer(serializers.ModelSerializer):
             'progress_photos', 'weather', 'other_expenses', 'other_expenses_description',
             'submitted_by', 'submitted_by_name', 'reviewed_by', 'reviewed_by_name',
             'reviewed_at', 'manager_comments', 'material_consumptions',
+            'is_editable', 'hours_until_immutable',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'submitted_by', 'submitted_by_name', 'reviewed_by', 'reviewed_by_name',
-            'reviewed_at', 'created_at', 'updated_at', 'site_name', 'material_consumptions'
+            'reviewed_at', 'created_at', 'updated_at', 'site_name', 'material_consumptions',
+            'is_editable', 'hours_until_immutable'
         ]
+    
+    def get_is_editable(self, obj):
+        """Check if log can be edited (within 24 hours)"""
+        return obj.is_editable()
+    
+    def get_hours_until_immutable(self, obj):
+        """Get hours remaining until log becomes immutable"""
+        return round(obj.get_hours_until_immutable(), 1)
     
     def create(self, validated_data):
         # Set submitted_by from request user

@@ -313,6 +313,28 @@ class DailyLog(TenantModel):
     
     def __str__(self):
         return f"{self.site.name} - {self.date}"
+    
+    def is_editable(self):
+        """
+        Check if log can be edited (within 24 hours of creation)
+        SRS 4.6: Logs are immutable after 24 hours
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        time_since_creation = timezone.now() - self.created_at
+        return time_since_creation < timedelta(hours=24)
+    
+    def get_hours_until_immutable(self):
+        """Get hours remaining until log becomes immutable"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        time_since_creation = timezone.now() - self.created_at
+        hours_passed = time_since_creation.total_seconds() / 3600
+        hours_remaining = 24 - hours_passed
+        
+        return max(0, hours_remaining)
 
 
 class MaterialConsumption(TenantModel):
@@ -387,64 +409,143 @@ class MaterialConsumption(TenantModel):
     
     def _update_inventory_stock(self):
         """
-        Decrease inventory stock for the site's warehouse
-        Create stock movement record for audit trail
-        Create accounting journal entry
+        Complete Material Usage Flow (SRS 6.1):
+        1. Decrease inventory stock for the site's warehouse
+        2. Create stock movement record for audit trail
+        3. Calculate cost and update site budget
+        4. Create accounting journal entry (Dr: Construction Expense, Cr: Inventory Asset)
+        5. Check budget threshold and send manager alert if needed
         """
         from inventory.models import Stock, StockMovement
         from accounting.services import record_material_consumption
+        from django.db import transaction as db_transaction
         
-        # Get or create stock record for this product at the site's warehouse
-        stock, created = Stock.objects.get_or_create(
-            tenant=self.tenant,
-            product=self.product,
-            warehouse=self.site.warehouse,
-            defaults={'quantity': Decimal('0.00')}
-        )
-        
-        # Decrease stock
-        stock.quantity -= self.quantity
-        stock.save()
-        
-        # Determine who performed the action
-        performed_by = None
-        if self.daily_log and self.daily_log.submitted_by:
-            performed_by = self.daily_log.submitted_by
-        
-        # Create stock movement record (audit trail)
-        notes = f'Material consumption at {self.site.name}'
-        if self.daily_log:
-            notes += f' - Daily log: {self.daily_log.date}'
-        if self.notes:
-            notes += f' - {self.notes}'
-        
-        StockMovement.objects.create(
-            tenant=self.tenant,
-            product=self.product,
-            warehouse=self.site.warehouse,
-            movement_type='out',
-            quantity=self.quantity,
-            reference_type='construction_consumption',
-            reference_id=self.id,
-            reason=f'Material consumption at {self.site.name}',
-            notes=notes,
-            performed_by=performed_by
-        )
-        
-        # Create accounting journal entry
-        try:
-            record_material_consumption(
-                site=self.site,
+        with db_transaction.atomic():
+            # STEP 1: Update Inventory - Deduct from site warehouse
+            stock, created = Stock.objects.get_or_create(
+                tenant=self.tenant,
                 product=self.product,
+                warehouse=self.site.warehouse,
+                defaults={'quantity': Decimal('0.00')}
+            )
+            
+            # Decrease stock quantity
+            stock.quantity -= self.quantity
+            stock.save()
+            
+            # STEP 2: Create Stock Movement (Audit Trail)
+            performed_by = None
+            if self.daily_log and self.daily_log.submitted_by:
+                performed_by = self.daily_log.submitted_by
+            
+            notes = f'Material consumption at {self.site.name}'
+            if self.daily_log:
+                notes += f' - Daily log: {self.daily_log.date}'
+            if self.notes:
+                notes += f' - {self.notes}'
+            
+            StockMovement.objects.create(
+                tenant=self.tenant,
+                product=self.product,
+                warehouse=self.site.warehouse,
+                movement_type='out',
                 quantity=self.quantity,
-                unit_cost=self.unit_cost,
-                reference=f'MC-{self.id}'
+                reference_type='construction_consumption',
+                reference_id=self.id,
+                reason=f'Material consumption at {self.site.name}',
+                notes=notes,
+                performed_by=performed_by
+            )
+            
+            # STEP 3: Cost Calculation (already done in save() - self.total_cost)
+            # The cost is calculated as: quantity * unit_cost
+            # This updates the site's actual spend automatically via get_material_cost()
+            
+            # STEP 4: Create Accounting Journal Entry
+            # Dr: Construction Expense (increases expense)
+            # Cr: Inventory Asset (decreases asset)
+            try:
+                record_material_consumption(
+                    site=self.site,
+                    product=self.product,
+                    quantity=self.quantity,
+                    unit_cost=self.unit_cost,
+                    reference=f'MC-{self.id}',
+                    tenant=self.tenant
+                )
+            except Exception as e:
+                # Log error but don't fail the transaction
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to create journal entry for material consumption {self.id}: {e}")
+            
+            # STEP 5: Budget Update & Manager Alert
+            # Check if budget threshold exceeded (80%+)
+            self._check_budget_alert()
+    
+    def _check_budget_alert(self):
+        """
+        Check if site budget has exceeded 80% threshold and send alert to manager.
+        This implements the "Manager alert" step from SRS 6.1 Material Usage Flow.
+        """
+        # Get current budget percentage
+        budget_percentage = self.site.get_budget_percentage()
+        
+        # Check if budget is 80% or more
+        if budget_percentage >= 80:
+            self._send_budget_alert(budget_percentage)
+    
+    def _send_budget_alert(self, budget_percentage):
+        """
+        Send budget alert notification to site manager.
+        Creates a notification record that will be displayed in the dashboard.
+        """
+        from users.models import Notification
+        
+        # Get site manager
+        manager = self.site.manager
+        if not manager or not manager.user:
+            return  # No manager assigned or no user linked, skip alert
+        
+        # Determine alert level
+        if budget_percentage >= 100:
+            alert_level = 'critical'
+            message = f"🚨 CRITICAL: Site '{self.site.name}' has EXCEEDED budget ({budget_percentage:.1f}%)"
+        elif budget_percentage >= 90:
+            alert_level = 'warning'
+            message = f"⚠️ WARNING: Site '{self.site.name}' budget at {budget_percentage:.1f}%"
+        else:
+            alert_level = 'info'
+            message = f"ℹ️ NOTICE: Site '{self.site.name}' budget at {budget_percentage:.1f}%"
+        
+        # Create notification
+        try:
+            Notification.objects.create(
+                tenant=self.tenant,
+                user=manager.user,  # Send to the manager's user account
+                title=f"Budget Alert: {self.site.name}",
+                message=message,
+                notification_type='budget_alert',
+                level=alert_level,
+                reference_type='construction_site',
+                reference_id=self.site.id,
+                data={
+                    'site_id': self.site.id,
+                    'site_name': self.site.name,
+                    'budget_percentage': float(budget_percentage),
+                    'allocated_budget': float(self.site.allocated_budget),
+                    'actual_spend': float(self.site.get_actual_spend()),
+                    'material_consumption_id': self.id,
+                    'product_name': self.product.name,
+                    'quantity': float(self.quantity),
+                    'cost': float(self.total_cost)
+                }
             )
         except Exception as e:
             # Log error but don't fail the transaction
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create journal entry for material consumption {self.id}: {e}")
+            logger.error(f"Failed to create budget alert notification: {e}")
 
 
 class Equipment(TenantModel):

@@ -1,21 +1,57 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from .views import (
     CustomerViewSet, SalesOrderViewSet, QuotationViewSet,
     InvoiceViewSet, CreditNoteViewSet, CustomerLedgerViewSet, PaymentReceivedViewSet
 )
 from .reports_views import SalesReportsViewSet
 
-router = DefaultRouter()
-router.register(r'customers', CustomerViewSet, basename='customer')
-router.register(r'orders', SalesOrderViewSet, basename='salesorder')
-router.register(r'quotations', QuotationViewSet, basename='quotation')
-router.register(r'invoices', InvoiceViewSet, basename='invoice')
-router.register(r'credit-notes', CreditNoteViewSet, basename='creditnote')
-router.register(r'ledger', CustomerLedgerViewSet, basename='customer-ledger')
-router.register(r'payments', PaymentReceivedViewSet, basename='payment-received')
-router.register(r'reports', SalesReportsViewSet, basename='sales-reports')
-
 urlpatterns = [
-    path('', include(router.urls)),
+    # Customers
+    path('customers/', CustomerViewSet.as_view({'get': 'list', 'post': 'create'}), name='customer-list'),
+    path('customers/<int:pk>/', CustomerViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='customer-detail'),
+    path('customers/<int:pk>/ledger/', CustomerViewSet.as_view({'get': 'ledger'}), name='customer-ledger'),
+    path('customers/<int:pk>/credit_summary/', CustomerViewSet.as_view({'get': 'credit_summary'}), name='customer-credit-summary'),
+    path('customers/<int:pk>/aging_report/', CustomerViewSet.as_view({'get': 'aging_report'}), name='customer-aging-report'),
+    path('customers/credit_overview/', CustomerViewSet.as_view({'get': 'credit_overview'}), name='customer-credit-overview'),
+    
+    # Sales Orders
+    path('orders/', SalesOrderViewSet.as_view({'get': 'list', 'post': 'create'}), name='salesorder-list'),
+    path('orders/<int:pk>/', SalesOrderViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='salesorder-detail'),
+    path('orders/dashboard/', SalesOrderViewSet.as_view({'get': 'sales_dashboard'}), name='salesorder-dashboard'),
+    path('orders/<int:pk>/update_status/', SalesOrderViewSet.as_view({'patch': 'update_status'}), name='salesorder-update-status'),
+    path('orders/<int:pk>/finalize/', SalesOrderViewSet.as_view({'post': 'finalize'}), name='salesorder-finalize'),
+    path('orders/<int:pk>/finalize_on_credit/', SalesOrderViewSet.as_view({'post': 'finalize_on_credit'}), name='salesorder-finalize-on-credit'),
+    path('orders/<int:pk>/cancel/', SalesOrderViewSet.as_view({'post': 'cancel'}), name='salesorder-cancel'),
+    
+    # Quotations
+    path('quotations/', QuotationViewSet.as_view({'get': 'list', 'post': 'create'}), name='quotation-list'),
+    path('quotations/<int:pk>/', QuotationViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='quotation-detail'),
+    path('quotations/<int:pk>/convert_to_order/', QuotationViewSet.as_view({'post': 'convert_to_order'}), name='quotation-convert-to-order'),
+    path('quotations/<int:pk>/mark_accepted/', QuotationViewSet.as_view({'post': 'mark_accepted'}), name='quotation-mark-accepted'),
+    path('quotations/<int:pk>/mark_rejected/', QuotationViewSet.as_view({'post': 'mark_rejected'}), name='quotation-mark-rejected'),
+    
+    # Invoices
+    path('invoices/', InvoiceViewSet.as_view({'get': 'list', 'post': 'create'}), name='invoice-list'),
+    path('invoices/<int:pk>/', InvoiceViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invoice-detail'),
+    path('invoices/<int:pk>/record_payment/', InvoiceViewSet.as_view({'post': 'record_payment'}), name='invoice-record-payment'),
+    path('invoices/<int:pk>/mark_paid/', InvoiceViewSet.as_view({'post': 'mark_paid'}), name='invoice-mark-paid'),
+    path('invoices/<int:pk>/cancel/', InvoiceViewSet.as_view({'post': 'cancel'}), name='invoice-cancel'),
+    
+    # Credit Notes
+    path('credit-notes/', CreditNoteViewSet.as_view({'get': 'list', 'post': 'create'}), name='creditnote-list'),
+    path('credit-notes/<int:pk>/', CreditNoteViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='creditnote-detail'),
+    path('credit-notes/<int:pk>/approve/', CreditNoteViewSet.as_view({'post': 'approve'}), name='creditnote-approve'),
+    
+    # Customer Ledger
+    path('ledger/', CustomerLedgerViewSet.as_view({'get': 'list'}), name='customer-ledger-list'),
+    path('ledger/<int:pk>/', CustomerLedgerViewSet.as_view({'get': 'retrieve'}), name='customer-ledger-detail'),
+    
+    # Payments
+    path('payments/', PaymentReceivedViewSet.as_view({'get': 'list', 'post': 'create'}), name='payment-received-list'),
+    path('payments/<int:pk>/', PaymentReceivedViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='payment-received-detail'),
+    
+    # Reports
+    path('reports/summary/', SalesReportsViewSet.as_view({'get': 'summary'}), name='sales-reports-summary'),
+    path('reports/by_customer/', SalesReportsViewSet.as_view({'get': 'by_customer'}), name='sales-reports-by-customer'),
+    path('reports/by_product/', SalesReportsViewSet.as_view({'get': 'by_product'}), name='sales-reports-by-product'),
 ]

@@ -187,3 +187,9 @@ class AuditLog(models.Model):
     def __str__(self):
         username = self.user.username if self.user else "Unknown"
         return f"{username} - {self.action} - {self.module} - {self.created_at}"
+
+
+# Import notification models
+from users.notification_models import Notification
+
+__all__ = ['User', 'Notification']

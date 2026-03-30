@@ -294,6 +294,247 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             'created': created_attendances,
             'errors': errors
         })
+    
+    @extend_schema(
+        tags=['Construction - Attendance'],
+        summary='Monthly payroll summary per site',
+        description='Returns monthly payroll summary for a specific site',
+        parameters=[
+            OpenApiParameter(name='site', description='Site ID', required=True, type=str),
+            OpenApiParameter(name='month', description='Month (1-12)', required=True, type=int),
+            OpenApiParameter(name='year', description='Year (e.g., 2024)', required=True, type=int),
+        ],
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'site_id': {'type': 'string'},
+                'site_name': {'type': 'string'},
+                'month': {'type': 'integer'},
+                'year': {'type': 'integer'},
+                'total_payroll': {'type': 'number'},
+                'worker_breakdown': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'worker_id': {'type': 'string'},
+                            'worker_name': {'type': 'string'},
+                            'category': {'type': 'string'},
+                            'days_present': {'type': 'integer'},
+                            'days_half_day': {'type': 'integer'},
+                            'days_overtime': {'type': 'integer'},
+                            'total_wage': {'type': 'number'},
+                        }
+                    }
+                }
+            }
+        }}
+    )
+    @action(detail=False, methods=['get'])
+    def payroll_summary_by_site(self, request):
+        """Monthly payroll summary per site"""
+        site_id = request.query_params.get('site')
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        
+        if not site_id or not month or not year:
+            return Response(
+                {'error': 'site, month, and year are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            site = Site.objects.get(id=site_id, tenant=request.user.tenant)
+        except Site.DoesNotExist:
+            return Response(
+                {'error': 'Site not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all attendance records for this site in the specified month
+        attendances = Attendance.objects.filter(
+            tenant=request.user.tenant,
+            site=site,
+            date__month=int(month),
+            date__year=int(year)
+        ).select_related('worker')
+        
+        # Calculate worker breakdown
+        worker_summary = {}
+        for attendance in attendances:
+            worker_id = str(attendance.worker.id)
+            if worker_id not in worker_summary:
+                worker_summary[worker_id] = {
+                    'worker_id': worker_id,
+                    'worker_name': attendance.worker.name,
+                    'category': attendance.worker.category,
+                    'daily_wage': float(attendance.worker.daily_wage),
+                    'days_present': 0,
+                    'days_half_day': 0,
+                    'days_overtime': 0,
+                    'days_absent': 0,
+                    'total_wage': Decimal('0.00'),
+                }
+            
+            # Count attendance by status
+            if attendance.status == 'present':
+                worker_summary[worker_id]['days_present'] += 1
+            elif attendance.status == 'half_day':
+                worker_summary[worker_id]['days_half_day'] += 1
+            elif attendance.status == 'overtime':
+                worker_summary[worker_id]['days_overtime'] += 1
+            elif attendance.status == 'absent':
+                worker_summary[worker_id]['days_absent'] += 1
+            
+            # Add wage amount
+            worker_summary[worker_id]['total_wage'] += attendance.wage_amount
+        
+        # Convert to list and calculate totals
+        worker_breakdown = []
+        total_payroll = Decimal('0.00')
+        
+        for worker_data in worker_summary.values():
+            worker_data['total_wage'] = float(worker_data['total_wage'])
+            total_payroll += Decimal(str(worker_data['total_wage']))
+            worker_breakdown.append(worker_data)
+        
+        # Sort by worker name
+        worker_breakdown.sort(key=lambda x: x['worker_name'])
+        
+        return Response({
+            'site_id': str(site.id),
+            'site_name': site.name,
+            'month': int(month),
+            'year': int(year),
+            'total_payroll': float(total_payroll),
+            'worker_count': len(worker_breakdown),
+            'worker_breakdown': worker_breakdown,
+        })
+    
+    @extend_schema(
+        tags=['Construction - Attendance'],
+        summary='Monthly payroll summary per worker',
+        description='Returns monthly payroll summary for a specific worker across all sites',
+        parameters=[
+            OpenApiParameter(name='worker', description='Worker ID', required=True, type=str),
+            OpenApiParameter(name='month', description='Month (1-12)', required=True, type=int),
+            OpenApiParameter(name='year', description='Year (e.g., 2024)', required=True, type=int),
+        ],
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'worker_id': {'type': 'string'},
+                'worker_name': {'type': 'string'},
+                'category': {'type': 'string'},
+                'daily_wage': {'type': 'number'},
+                'month': {'type': 'integer'},
+                'year': {'type': 'integer'},
+                'total_wage': {'type': 'number'},
+                'site_breakdown': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'site_id': {'type': 'string'},
+                            'site_name': {'type': 'string'},
+                            'days_present': {'type': 'integer'},
+                            'days_half_day': {'type': 'integer'},
+                            'days_overtime': {'type': 'integer'},
+                            'total_wage': {'type': 'number'},
+                        }
+                    }
+                }
+            }
+        }}
+    )
+    @action(detail=False, methods=['get'])
+    def payroll_summary_by_worker(self, request):
+        """Monthly payroll summary per worker"""
+        worker_id = request.query_params.get('worker')
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        
+        if not worker_id or not month or not year:
+            return Response(
+                {'error': 'worker, month, and year are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            worker = Worker.objects.get(id=worker_id, tenant=request.user.tenant)
+        except Worker.DoesNotExist:
+            return Response(
+                {'error': 'Worker not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all attendance records for this worker in the specified month
+        attendances = Attendance.objects.filter(
+            tenant=request.user.tenant,
+            worker=worker,
+            date__month=int(month),
+            date__year=int(year)
+        ).select_related('site')
+        
+        # Calculate site breakdown
+        site_summary = {}
+        for attendance in attendances:
+            site_id = str(attendance.site.id)
+            if site_id not in site_summary:
+                site_summary[site_id] = {
+                    'site_id': site_id,
+                    'site_name': attendance.site.name,
+                    'days_present': 0,
+                    'days_half_day': 0,
+                    'days_overtime': 0,
+                    'days_absent': 0,
+                    'total_wage': Decimal('0.00'),
+                }
+            
+            # Count attendance by status
+            if attendance.status == 'present':
+                site_summary[site_id]['days_present'] += 1
+            elif attendance.status == 'half_day':
+                site_summary[site_id]['days_half_day'] += 1
+            elif attendance.status == 'overtime':
+                site_summary[site_id]['days_overtime'] += 1
+            elif attendance.status == 'absent':
+                site_summary[site_id]['days_absent'] += 1
+            
+            # Add wage amount
+            site_summary[site_id]['total_wage'] += attendance.wage_amount
+        
+        # Convert to list and calculate totals
+        site_breakdown = []
+        total_wage = Decimal('0.00')
+        
+        for site_data in site_summary.values():
+            site_data['total_wage'] = float(site_data['total_wage'])
+            total_wage += Decimal(str(site_data['total_wage']))
+            site_breakdown.append(site_data)
+        
+        # Sort by site name
+        site_breakdown.sort(key=lambda x: x['site_name'])
+        
+        # Calculate total days worked
+        total_days_present = sum(s['days_present'] for s in site_breakdown)
+        total_days_half_day = sum(s['days_half_day'] for s in site_breakdown)
+        total_days_overtime = sum(s['days_overtime'] for s in site_breakdown)
+        
+        return Response({
+            'worker_id': str(worker.id),
+            'worker_name': worker.name,
+            'category': worker.category,
+            'daily_wage': float(worker.daily_wage),
+            'month': int(month),
+            'year': int(year),
+            'total_wage': float(total_wage),
+            'total_days_present': total_days_present,
+            'total_days_half_day': total_days_half_day,
+            'total_days_overtime': total_days_overtime,
+            'site_count': len(site_breakdown),
+            'site_breakdown': site_breakdown,
+        })
 
 
 @extend_schema_view(
@@ -305,27 +546,69 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     destroy=extend_schema(tags=['Construction - Daily Logs'], summary='Delete daily log'),
 )
 class DailyLogViewSet(viewsets.ModelViewSet):
-    """ViewSet for Daily Site Logs"""
+    """ViewSet for Daily Site Logs with 24-hour immutability (SRS 4.6)"""
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['site', 'date']
     search_fields = ['work_description', 'progress_notes']
     ordering_fields = ['date', 'created_at']
     ordering = ['-date']
-    
+
     def get_serializer_class(self):
         if self.action == 'create':
             return DailyLogCreateSerializer
         return DailyLogSerializer
-    
+
     def get_queryset(self):
         return DailyLog.objects.filter(tenant=self.request.user.tenant).select_related(
             'site', 'submitted_by', 'reviewed_by'
         ).prefetch_related('material_consumptions__product')
-    
+
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)
-    
+
+    def update(self, request, *args, **kwargs):
+        """Enforce 24-hour immutability rule (SRS 4.6)"""
+        instance = self.get_object()
+
+        if not instance.is_editable():
+            from rest_framework.exceptions import PermissionDenied
+            hours_passed = (timezone.now() - instance.created_at).total_seconds() / 3600
+            raise PermissionDenied(
+                f"This daily log cannot be edited. It was created {hours_passed:.1f} hours ago. "
+                "Daily logs are immutable after 24 hours."
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Enforce 24-hour immutability rule (SRS 4.6)"""
+        instance = self.get_object()
+
+        if not instance.is_editable():
+            from rest_framework.exceptions import PermissionDenied
+            hours_passed = (timezone.now() - instance.created_at).total_seconds() / 3600
+            raise PermissionDenied(
+                f"This daily log cannot be edited. It was created {hours_passed:.1f} hours ago. "
+                "Daily logs are immutable after 24 hours."
+            )
+
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """Enforce 24-hour immutability rule (SRS 4.6)"""
+        instance = self.get_object()
+
+        if not instance.is_editable():
+            from rest_framework.exceptions import PermissionDenied
+            hours_passed = (timezone.now() - instance.created_at).total_seconds() / 3600
+            raise PermissionDenied(
+                f"This daily log cannot be deleted. It was created {hours_passed:.1f} hours ago. "
+                "Daily logs are immutable after 24 hours."
+            )
+
+        return super().destroy(request, *args, **kwargs)
+
     @extend_schema(
         tags=['Construction - Daily Logs'],
         summary='Review daily log',
@@ -335,16 +618,17 @@ class DailyLogViewSet(viewsets.ModelViewSet):
     def review(self, request, pk=None):
         """Manager reviews a daily log"""
         daily_log = self.get_object()
-        
+
         comments = request.data.get('comments', '')
-        
+
         daily_log.reviewed_by = request.user
         daily_log.reviewed_at = timezone.now()
         daily_log.manager_comments = comments
         daily_log.save()
-        
+
         serializer = self.get_serializer(daily_log)
         return Response(serializer.data)
+
 
 
 @extend_schema_view(

@@ -1,15 +1,25 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from .views import TenantViewSet, OrganizationInvitationViewSet
 
-# Create separate routers to avoid conflicts
-tenant_router = DefaultRouter()
-tenant_router.register(r'', TenantViewSet, basename='tenant')
-
-invitation_router = DefaultRouter()
-invitation_router.register(r'', OrganizationInvitationViewSet, basename='invitation')
-
 urlpatterns = [
-    path('invitations/', include(invitation_router.urls)),
-    path('', include(tenant_router.urls)),
+    # Tenant CRUD - using slug as lookup field
+    path('', TenantViewSet.as_view({'get': 'list', 'post': 'create'}), name='tenant-list'),
+    
+    # Custom tenant actions (must come before slug routes)
+    path('current/', TenantViewSet.as_view({'get': 'current'}), name='tenant-current'),
+    path('update_current/', TenantViewSet.as_view({'patch': 'update_current'}), name='tenant-update-current'),
+    path('profile/', TenantViewSet.as_view({'get': 'profile'}), name='tenant-profile'),
+    
+    # Tenant detail routes with slug
+    path('<slug:slug>/', TenantViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='tenant-detail'),
+    path('<slug:slug>/activate_module/', TenantViewSet.as_view({'post': 'activate_module'}), name='tenant-activate-module'),
+    path('<slug:slug>/deactivate_module/', TenantViewSet.as_view({'post': 'deactivate_module'}), name='tenant-deactivate-module'),
+    
+    # Invitations
+    path('invitations/', OrganizationInvitationViewSet.as_view({'get': 'list', 'post': 'create'}), name='invitation-list'),
+    path('invitations/sent/', OrganizationInvitationViewSet.as_view({'get': 'sent'}), name='invitation-sent'),
+    path('invitations/received/', OrganizationInvitationViewSet.as_view({'get': 'received'}), name='invitation-received'),
+    path('invitations/<int:pk>/', OrganizationInvitationViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='invitation-detail'),
+    path('invitations/<int:pk>/respond/', OrganizationInvitationViewSet.as_view({'post': 'respond'}), name='invitation-respond'),
+    path('invitations/<int:pk>/cancel/', OrganizationInvitationViewSet.as_view({'post': 'cancel'}), name='invitation-cancel'),
 ]

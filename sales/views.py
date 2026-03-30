@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, F
+from django.db import models
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
@@ -146,6 +147,127 @@ class CustomerViewSet(viewsets.ModelViewSet):
         }
         
         return Response(report)
+    
+    @extend_schema(
+        tags=['Sales - Customers'],
+        summary='Get customer credit summary',
+        description='Returns credit summary for a specific customer including recent transactions',
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'customer_id': {'type': 'string'},
+                'customer_name': {'type': 'string'},
+                'credit_limit': {'type': 'number'},
+                'current_balance': {'type': 'number'},
+                'available_credit': {'type': 'number'},
+                'is_over_limit': {'type': 'boolean'},
+                'total_invoices': {'type': 'number'},
+                'unpaid_invoices': {'type': 'number'},
+                'recent_transactions': {'type': 'array'},
+            }
+        }}
+    )
+    @action(detail=True, methods=['get'])
+    def credit_summary(self, request, pk=None):
+        """
+        Get credit summary for a specific customer
+        Includes recent transactions and invoice counts
+        """
+        customer = self.get_object()
+        
+        # Get invoice counts
+        total_invoices = customer.invoices.count()
+        unpaid_invoices = customer.invoices.filter(
+            Q(status='Sent') | Q(status='Partially Paid') | Q(status='Overdue')
+        ).count()
+        
+        # Get recent ledger entries (last 10)
+        recent_ledger = customer.ledger_entries.all()[:10]
+        recent_transactions = CustomerLedgerSerializer(recent_ledger, many=True).data
+        
+        summary = {
+            'customer_id': str(customer.id),
+            'customer_name': customer.name,
+            'credit_limit': float(customer.credit_limit),
+            'current_balance': float(customer.current_balance),
+            'available_credit': float(customer.available_credit),
+            'is_over_limit': customer.is_over_limit,
+            'total_invoices': total_invoices,
+            'unpaid_invoices': unpaid_invoices,
+            'recent_transactions': recent_transactions,
+            'payment_terms': customer.payment_terms,
+            'status': customer.status,
+        }
+        
+        return Response(summary)
+    
+    @extend_schema(
+        tags=['Sales - Customers'],
+        summary='Get credit overview for all customers',
+        description='Returns credit overview for all customers with outstanding balances',
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'total_outstanding': {'type': 'number'},
+                'total_credit_limit': {'type': 'number'},
+                'customers_with_balance': {'type': 'number'},
+                'customers_over_limit': {'type': 'number'},
+                'customers': {'type': 'array'},
+            }
+        }}
+    )
+    @action(detail=False, methods=['get'])
+    def credit_overview(self, request):
+        """
+        Get credit overview for all customers
+        Shows total outstanding, credit limits, and customers over limit
+        """
+        customers = self.get_queryset()
+        
+        # Calculate totals
+        total_outstanding = customers.aggregate(
+            total=Sum('current_balance')
+        )['total'] or Decimal('0.00')
+        
+        total_credit_limit = customers.aggregate(
+            total=Sum('credit_limit')
+        )['total'] or Decimal('0.00')
+        
+        # Count customers with balance
+        customers_with_balance = customers.filter(current_balance__gt=0).count()
+        
+        # Get customers over limit
+        customers_over_limit_qs = customers.filter(
+            current_balance__gt=models.F('credit_limit')
+        )
+        customers_over_limit_count = customers_over_limit_qs.count()
+        
+        # Get top customers by outstanding balance
+        top_customers = customers.filter(
+            current_balance__gt=0
+        ).order_by('-current_balance')[:10]
+        
+        customers_data = [{
+            'id': str(c.id),
+            'name': c.name,
+            'phone': c.phone,
+            'current_balance': float(c.current_balance),
+            'credit_limit': float(c.credit_limit),
+            'available_credit': float(c.available_credit),
+            'is_over_limit': c.is_over_limit,
+            'payment_terms': c.payment_terms,
+        } for c in top_customers]
+        
+        overview = {
+            'total_outstanding': float(total_outstanding),
+            'total_credit_limit': float(total_credit_limit),
+            'customers_with_balance': customers_with_balance,
+            'customers_over_limit': customers_over_limit_count,
+            'customers': customers_data,
+            'utilization_rate': float((total_outstanding / total_credit_limit * 100) if total_credit_limit > 0 else 0),
+        }
+        
+        return Response(overview)
 
 
 @extend_schema_view(

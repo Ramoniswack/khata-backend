@@ -214,12 +214,11 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
-    tenant_name = serializers.CharField(write_only=True, required=False, help_text="Organization name for new tenant creation (auto-generated if not provided)")
     username = serializers.CharField(required=False, help_text="Username (auto-generated from email if not provided)")
     
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'first_name', 'last_name', 'phone', 'tenant_name']
+        fields = ['username', 'email', 'password', 'first_name', 'last_name', 'phone']
     
     def validate_email(self, value):
         """Ensure email is unique"""
@@ -227,28 +226,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('This email is already registered. Please use a different email or login.')
         return value
     
-    def validate_tenant_name(self, value):
-        """Ensure tenant name is unique (if provided)"""
-        if value and Tenant.objects.filter(name=value).exists():
-            raise serializers.ValidationError('An organization with this name already exists. Please choose a different name.')
-        return value
-    
     def create(self, validated_data):
         try:
-            # Auto-generate tenant_name if not provided
-            tenant_name = validated_data.pop('tenant_name', None)
-            if not tenant_name:
-                first_name = validated_data.get('first_name', '')
-                last_name = validated_data.get('last_name', '')
-                tenant_name = f"{first_name} {last_name}'s Organization".strip()
-                
-                # Ensure uniqueness by appending number if needed
-                base_name = tenant_name
-                counter = 1
-                while Tenant.objects.filter(name=tenant_name).exists():
-                    tenant_name = f"{base_name} {counter}"
-                    counter += 1
-            
             # Auto-generate username from email if not provided
             if 'username' not in validated_data or not validated_data['username']:
                 email = validated_data.get('email', '')
@@ -263,36 +242,12 @@ class RegisterSerializer(serializers.ModelSerializer):
                 
                 validated_data['username'] = username
             
-            # Create tenant first (mark as created from registration)
-            tenant = Tenant.objects.create(
-                name=tenant_name,
-                business_type='other',
-                plan_type='free',
-                active_modules=['sales', 'purchase', 'inventory', 'accounting', 'construction', 'reports'],
-                created_from_registration=True  # Mark as registration tenant
-            )
-            
-            # Initialize default permissions for the new tenant
-            from .permission_models import initialize_tenant_permissions
-            initialize_tenant_permissions(tenant)
-            
-            # Create user as admin of the new tenant
+            # Create user WITHOUT tenant (tenant=None)
+            # User will create organization manually after login
             user = User.objects.create_user(
                 **validated_data,
-                tenant=tenant,
-                role='admin'  # First user is always admin
-            )
-            
-            # Set created_by on tenant
-            tenant.created_by = user
-            tenant.save()
-            
-            # Create membership record for the owner
-            from tenants.membership_models import UserTenantMembership
-            UserTenantMembership.objects.create(
-                user=user,
-                tenant=tenant,
-                role='admin'
+                tenant=None,  # No automatic tenant assignment
+                role='viewer'  # Default role until they create/join an organization
             )
             
             return user

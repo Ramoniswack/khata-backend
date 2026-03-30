@@ -15,24 +15,30 @@ class TenantViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """
         Filter tenants - authenticated users see all tenants they are members of
-        (excluding tenants created from registration)
+        
+        Users can see tenants where they:
+        1. Have membership (any role)
+        2. Are the creator
+        
+        Note: We now include tenants created from registration if user is creator/member
         """
         if self.request.user.is_authenticated:
             # Import here to avoid circular import
             from .membership_models import UserTenantMembership
             
             # Get all tenant IDs where user has membership
-            membership_tenant_ids = UserTenantMembership.objects.filter(
+            membership_tenant_ids = list(UserTenantMembership.objects.filter(
                 user=self.request.user
-            ).values_list('tenant_id', flat=True)
+            ).values_list('tenant_id', flat=True))
             
             # Return tenants where user has membership OR is the creator
-            # AND the tenant was not created from registration
             from django.db.models import Q
-            return Tenant.objects.filter(
-                Q(id__in=membership_tenant_ids) | Q(created_by=self.request.user),
-                created_from_registration=False
-            ).distinct()
+            
+            # Build query: has membership OR is creator
+            # We now allow registration tenants if user is creator/member
+            query = Q(id__in=membership_tenant_ids) | Q(created_by=self.request.user)
+            
+            return Tenant.objects.filter(query).distinct()
         # For unauthenticated users (for create action), return none
         return Tenant.objects.none()
     serializer_class = TenantSerializer
