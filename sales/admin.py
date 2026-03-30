@@ -5,13 +5,140 @@ from .models import (
 )
 
 
+class CustomerLedgerInline(admin.TabularInline):
+    """Inline display of customer ledger entries (read-only)"""
+    model = CustomerLedger
+    extra = 0
+    can_delete = False
+    max_num = 10
+    fields = ['date', 'transaction_type', 'reference_number', 'debit_amount', 'credit_amount', 'running_balance', 'description']
+    readonly_fields = ['date', 'transaction_type', 'reference_number', 'debit_amount', 'credit_amount', 'running_balance', 'description']
+    
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class PaymentReceivedInline(admin.TabularInline):
+    """Inline display of payments received from customer"""
+    model = PaymentReceived
+    extra = 0
+    fields = ['payment_number', 'date', 'amount', 'payment_method', 'reference_number', 'received_by']
+    readonly_fields = ['payment_number', 'received_by']
+    autocomplete_fields = ['invoice']
+
+
 @admin.register(Customer)
 class CustomerAdmin(admin.ModelAdmin):
-    list_display = ['name', 'phone', 'email', 'type', 'status', 'credit_limit', 'current_balance', 'created_at']
-    list_filter = ['status', 'type', 'payment_terms']
-    search_fields = ['name', 'phone', 'email', 'pan']
+    list_display = [
+        'name', 'phone', 'email', 'type', 'status_badge', 
+        'credit_limit', 'current_balance', 'outstanding_balance', 
+        'total_paid', 'created_at'
+    ]
+    list_filter = ['status', 'type', 'payment_terms', 'tenant', 'created_at']
+    search_fields = ['name', 'phone', 'email', 'pan', 'address']
     ordering = ['-created_at']
-    readonly_fields = ['current_balance']
+    readonly_fields = ['current_balance', 'outstanding_balance', 'total_paid', 'available_credit', 'created_at', 'updated_at']
+    date_hierarchy = 'created_at'
+    list_per_page = 25
+    actions = ['activate_customers', 'deactivate_customers', 'export_to_csv']
+    inlines = [CustomerLedgerInline, PaymentReceivedInline]
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'type', 'status')
+        }),
+        ('Contact Details', {
+            'fields': ('phone', 'email', 'address')
+        }),
+        ('Business Details', {
+            'fields': ('pan', 'payment_terms')
+        }),
+        ('Credit Management', {
+            'fields': ('credit_limit', 'current_balance', 'outstanding_balance', 'available_credit'),
+            'description': 'Credit limit and balance information for this customer'
+        }),
+        ('Audit Information', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def status_badge(self, obj):
+        """Display status with color coding"""
+        if obj.status == 'active':
+            color = 'green'
+            icon = '✓'
+        else:
+            color = 'red'
+            icon = '✗'
+        return f'<span style="color: {color}; font-weight: bold;">{icon} {obj.get_status_display()}</span>'
+    status_badge.short_description = 'Status'
+    status_badge.allow_tags = True
+    
+    def outstanding_balance(self, obj):
+        """Display outstanding balance (same as current_balance)"""
+        return f"Rs. {obj.current_balance:,.2f}"
+    outstanding_balance.short_description = 'Outstanding'
+    outstanding_balance.admin_order_field = 'current_balance'
+    
+    def total_paid(self, obj):
+        """Calculate total payments received from customer"""
+        from decimal import Decimal
+        total = obj.payments_received.aggregate(
+            total=models.Sum('amount')
+        )['total'] or Decimal('0.00')
+        return f"Rs. {total:,.2f}"
+    total_paid.short_description = 'Total Paid'
+    
+    def available_credit(self, obj):
+        """Display available credit"""
+        return f"Rs. {obj.available_credit:,.2f}"
+    available_credit.short_description = 'Available Credit'
+    
+    def activate_customers(self, request, queryset):
+        """Bulk action to activate selected customers"""
+        updated = queryset.update(status='active')
+        self.message_user(request, f'{updated} customer(s) successfully activated.')
+    activate_customers.short_description = 'Activate selected customers'
+    
+    def deactivate_customers(self, request, queryset):
+        """Bulk action to deactivate selected customers"""
+        updated = queryset.update(status='inactive')
+        self.message_user(request, f'{updated} customer(s) successfully deactivated.')
+    deactivate_customers.short_description = 'Deactivate selected customers'
+    
+    def export_to_csv(self, request, queryset):
+        """Export selected customers to CSV"""
+        import csv
+        from django.http import HttpResponse
+        from datetime import datetime
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="customers_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow([
+            'Name', 'Phone', 'Email', 'PAN', 'Type', 'Status', 
+            'Credit Limit', 'Current Balance', 'Payment Terms', 'Address'
+        ])
+        
+        for customer in queryset:
+            writer.writerow([
+                customer.name,
+                customer.phone,
+                customer.email or '',
+                customer.pan or '',
+                customer.type,
+                customer.status,
+                customer.credit_limit,
+                customer.current_balance,
+                customer.payment_terms,
+                customer.address or ''
+            ])
+        
+        self.message_user(request, f'{queryset.count()} customer(s) exported to CSV.')
+        return response
+    export_to_csv.short_description = 'Export selected customers to CSV'
 
 
 class SalesOrderLineInline(admin.TabularInline):

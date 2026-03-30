@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 from datetime import timedelta
 from decimal import Decimal
+from users.dynamic_permissions import DynamicModulePermission
 
 from .models import (
     Customer, SalesOrder, SalesOrderLine, Quotation, Invoice, CreditNote,
@@ -31,7 +32,8 @@ from .serializers import (
 )
 class CustomerViewSet(viewsets.ModelViewSet):
     """ViewSet for Customer CRUD operations with credit management"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     filterset_fields = ['status', 'type', 'payment_terms']
     search_fields = ['name', 'phone', 'email', 'pan']
     ordering_fields = ['name', 'created_at', 'current_balance']
@@ -288,7 +290,8 @@ class CustomerViewSet(viewsets.ModelViewSet):
 )
 class SalesOrderViewSet(viewsets.ModelViewSet):
     """ViewSet for Sales Order CRUD operations"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     filterset_fields = ['status', 'customer']
     search_fields = ['order_number', 'reference', 'customer__name']
     ordering_fields = ['date', 'created_at', 'total']
@@ -627,7 +630,8 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
 )
 class QuotationViewSet(viewsets.ModelViewSet):
     """ViewSet for Quotation CRUD operations"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     filterset_fields = ['status', 'customer']
     search_fields = ['quotation_number', 'customer__name']
     ordering_fields = ['date', 'created_at', 'valid_until']
@@ -753,15 +757,17 @@ class QuotationViewSet(viewsets.ModelViewSet):
 )
 class InvoiceViewSet(viewsets.ModelViewSet):
     """ViewSet for Invoice CRUD operations"""
-    def get_queryset(self):
-        """Filter by current tenant"""
-        return Invoice.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'sales_order', 'created_by')
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     serializer_class = InvoiceSerializer
-    permission_classes = [IsAuthenticated]
     filterset_fields = ['status', 'customer']
     search_fields = ['invoice_number', 'customer__name']
     ordering_fields = ['date', 'due_date', 'created_at', 'amount']
     ordering = ['-date', '-created_at']
+    
+    def get_queryset(self):
+        """Filter by current tenant"""
+        return Invoice.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'sales_order', 'created_by')
     
     def perform_create(self, serializer):
         from django.db import transaction
@@ -892,15 +898,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 )
 class CreditNoteViewSet(viewsets.ModelViewSet):
     """ViewSet for Credit Note CRUD operations"""
-    def get_queryset(self):
-        """Filter by current tenant"""
-        return CreditNote.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'invoice', 'created_by')
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     serializer_class = CreditNoteSerializer
-    permission_classes = [IsAuthenticated]
     filterset_fields = ['status', 'customer', 'invoice']
     search_fields = ['credit_note_number', 'customer__name']
     ordering_fields = ['date', 'created_at', 'amount']
     ordering = ['-date', '-created_at']
+    
+    def get_queryset(self):
+        """Filter by current tenant"""
+        return CreditNote.objects.filter(tenant=self.request.user.tenant).select_related('customer', 'invoice', 'created_by')
     
     def perform_create(self, serializer):
         from django.db import transaction
@@ -949,8 +957,9 @@ class CustomerLedgerViewSet(viewsets.ReadOnlyModelViewSet):
     ViewSet for Customer Ledger (Read-only)
     Ledger entries are immutable - created automatically by system
     """
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     serializer_class = CustomerLedgerSerializer
-    permission_classes = [IsAuthenticated]
     filterset_fields = ['customer', 'transaction_type', 'date']
     search_fields = ['customer__name', 'reference_number', 'description']
     ordering_fields = ['date', 'created_at']
@@ -973,8 +982,9 @@ class PaymentReceivedViewSet(viewsets.ModelViewSet):
     ViewSet for Payment Received
     Automatically creates ledger entry and updates customer balance
     """
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'sales'
     serializer_class = PaymentReceivedSerializer
-    permission_classes = [IsAuthenticated]
     filterset_fields = ['customer', 'payment_method', 'date', 'invoice']
     search_fields = ['payment_number', 'customer__name', 'reference_number']
     ordering_fields = ['date', 'amount', 'created_at']

@@ -254,7 +254,10 @@ def update_permissions(request):
     """
     Update the permissions matrix for all roles.
     Accepts the complete permissions matrix from the frontend.
+    Optimized with bulk operations for better performance.
     """
+    from django.db import transaction
+    
     tenant = request.user.tenant
     
     if not tenant:
@@ -297,41 +300,70 @@ def update_permissions(request):
         'Approve': 'approve',
     }
     
-    # Process each role's permissions
-    permissions_to_update = []
-    
-    for role_display, perms in serializer.validated_data.items():
-        role_db = role_map.get(role_display)
-        if not role_db:
-            continue
+    # Use transaction for atomicity
+    with transaction.atomic():
+        # Fetch all existing permissions for this tenant in one query
+        existing_perms = {
+            (p.role, p.module, p.action): p
+            for p in RolePermission.objects.filter(tenant=tenant).select_for_update()
+        }
         
-        for key, allowed in perms.items():
-            # Parse the key (e.g., "Sales-View" -> module="sales", action="view")
-            parts = key.split('-')
-            if len(parts) != 2:
+        permissions_to_create = []
+        permissions_to_update = []
+        
+        # Process each role's permissions
+        for role_display, perms in serializer.validated_data.items():
+            role_db = role_map.get(role_display)
+            if not role_db:
                 continue
             
-            module_display, action_display = parts
-            module_db = module_map.get(module_display)
-            action_db = action_map.get(action_display)
-            
-            if not module_db or not action_db:
-                continue
-            
-            # Update or create the permission
-            perm, created = RolePermission.objects.update_or_create(
-                tenant=tenant,
-                role=role_db,
-                module=module_db,
-                action=action_db,
-                defaults={'allowed': allowed}
-            )
-            permissions_to_update.append(perm)
+            for key, allowed in perms.items():
+                # Parse the key (e.g., "Sales-View" -> module="sales", action="view")
+                parts = key.split('-')
+                if len(parts) != 2:
+                    continue
+                
+                module_display, action_display = parts
+                module_db = module_map.get(module_display)
+                action_db = action_map.get(action_display)
+                
+                if not module_db or not action_db:
+                    continue
+                
+                perm_key = (role_db, module_db, action_db)
+                
+                if perm_key in existing_perms:
+                    # Update existing permission
+                    perm = existing_perms[perm_key]
+                    if perm.allowed != allowed:
+                        perm.allowed = allowed
+                        permissions_to_update.append(perm)
+                else:
+                    # Create new permission
+                    permissions_to_create.append(
+                        RolePermission(
+                            tenant=tenant,
+                            role=role_db,
+                            module=module_db,
+                            action=action_db,
+                            allowed=allowed
+                        )
+                    )
+        
+        # Bulk create new permissions
+        if permissions_to_create:
+            RolePermission.objects.bulk_create(permissions_to_create, ignore_conflicts=True)
+        
+        # Bulk update existing permissions
+        if permissions_to_update:
+            RolePermission.objects.bulk_update(permissions_to_update, ['allowed'])
+        
+        total_updated = len(permissions_to_create) + len(permissions_to_update)
     
     return Response(
         {
             'message': 'Permissions updated successfully',
-            'updated_count': len(permissions_to_update)
+            'updated_count': total_updated
         },
         status=status.HTTP_200_OK
     )

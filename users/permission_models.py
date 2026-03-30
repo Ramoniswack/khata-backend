@@ -116,6 +116,7 @@ def get_default_permissions():
             'hardware': ['view'],
             'reports': ['view'],
             'settings': ['view'],
+            'hr': ['view'],
         },
     }
 

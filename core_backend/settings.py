@@ -266,8 +266,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 
+
+
 # ============================================================================
-# JAZZMIN SETTINGS - Premium SaaS Admin Interface
+# JAZZMIN ADMIN THEME - Clean & Minimal Configuration
 # ============================================================================
 
 JAZZMIN_SETTINGS = {
@@ -275,68 +277,32 @@ JAZZMIN_SETTINGS = {
     "site_title": "KHATA Admin",
     "site_header": "KHATA",
     "site_brand": "KHATA Business OS",
-    "site_logo": None,  # Path to logo image in static files
-    "site_logo_classes": "img-circle",
-    "site_icon": None,  # Favicon path
+    "site_logo": None,
+    "site_icon": None,
+    "welcome_sign": "Welcome to KHATA Business OS",
+    "copyright": "KHATA © 2026",
     
-    # Welcome text on the login screen
-    "welcome_sign": "Welcome to Khata Business OS",
+    # Search
+    "search_model": ["users.User", "tenants.Tenant", "inventory.Product", "sales.Customer"],
     
-    # Copyright on the footer
-    "copyright": "Khata ERP © 2026 | Professional Business Management System",
-    
-    # Search model in the sidebar
-    "search_model": ["auth.User", "tenants.Tenant", "inventory.Product", "sales.Customer", "purchase.Supplier"],
-    
-    # Field name on user model that contains avatar
-    "user_avatar": None,
-    
-    ############
-    # Top Menu #
-    ############
-    
-    # Links to put along the top menu
+    # Top menu
     "topmenu_links": [
-        # Url that gets reversed (Permissions can be added)
-        {"name": "Dashboard", "url": "admin:index", "permissions": ["auth.view_user"]},
-        
-        # External url
-        {"name": "API Documentation", "url": "/api/docs/", "new_window": True},
-        
-        # Model admin to link to (Permissions checked against model)
-        {"model": "auth.User"},
-        
-        # App with dropdown menu to all its models pages (Permissions checked against models)
-        {"app": "inventory"},
-    ],
-    
-    #############
-    # User Menu #
-    #############
-    
-    # Additional links to include in the user menu on the top right
-    "usermenu_links": [
+        {"name": "Home", "url": "admin:index", "permissions": ["auth.view_user"]},
         {"name": "API Docs", "url": "/api/docs/", "new_window": True},
-        {"model": "auth.user"},
     ],
     
-    #############
-    # Side Menu #
-    #############
+    # User menu
+    "usermenu_links": [
+        {"model": "users.user"}
+    ],
     
-    # Whether to display the side menu
+    # Side menu
     "show_sidebar": True,
-    
-    # Whether to auto expand the menu
     "navigation_expanded": True,
-    
-    # Hide these apps when generating side menu
     "hide_apps": [],
+    "hide_models": [],
     
-    # Hide these models when generating side menu (e.g. 'auth.group')
-    "hide_models": ["auth.Group"],  # Hide unused models for cleaner UI
-    
-    # List of apps (and/or models) to base side menu ordering off of
+    # App ordering
     "order_with_respect_to": [
         "tenants",
         "users",
@@ -345,150 +311,87 @@ JAZZMIN_SETTINGS = {
         "purchase",
         "accounting",
         "construction",
+        "hr",
         "reports",
     ],
     
-    # Custom links to append to app groups, keyed on app name
-    "custom_links": {
-        "inventory": [{
-            "name": "Inventory Reports",
-            "url": "/admin/reports/",
-            "icon": "fas fa-chart-line",
-            "permissions": ["inventory.view_product"]
-        }],
-        "construction": [{
-            "name": "Site Reports",
-            "url": "/admin/construction/site/",
-            "icon": "fas fa-building",
-            "permissions": ["construction.view_site"]
-        }],
-    },
-    
-    # Custom icons for side menu apps/models
+    # Icons for models
     "icons": {
-        # Organization
-        "tenants.Tenant": "fas fa-building",
-        "auth.User": "fas fa-users",
-        "auth.Group": "fas fa-users-cog",
+        "auth.User": "fas fa-user",
+        "auth.Group": "fas fa-users",
         "users.User": "fas fa-user-tie",
+        "tenants.Tenant": "fas fa-building",
         
-        # Inventory
         "inventory.Product": "fas fa-box",
         "inventory.Category": "fas fa-tags",
         "inventory.Warehouse": "fas fa-warehouse",
-        "inventory.Stock": "fas fa-boxes",
-        "inventory.StockMovement": "fas fa-exchange-alt",
         "inventory.UnitOfMeasure": "fas fa-ruler",
         
-        # Sales
         "sales.Customer": "fas fa-user-friends",
         "sales.SalesOrder": "fas fa-shopping-cart",
         "sales.Quotation": "fas fa-file-invoice",
         "sales.Invoice": "fas fa-file-invoice-dollar",
-        "sales.CreditNote": "fas fa-receipt",
-        "sales.PaymentReceived": "fas fa-money-bill-wave",
-        "sales.CustomerLedger": "fas fa-book",
         
-        # Purchase
         "purchase.Supplier": "fas fa-truck",
-        "purchase.PurchaseRequest": "fas fa-clipboard-list",
         "purchase.PurchaseOrder": "fas fa-shopping-bag",
-        "purchase.PurchaseInvoice": "fas fa-file-invoice",
-        "purchase.DebitNote": "fas fa-receipt",
+        "purchase.PurchaseRequest": "fas fa-clipboard-list",
         
-        # Accounting
         "accounting.Account": "fas fa-chart-pie",
         "accounting.JournalEntry": "fas fa-book-open",
         "accounting.BankAccount": "fas fa-university",
-        "accounting.BankTransaction": "fas fa-exchange-alt",
-        "accounting.TaxRule": "fas fa-percent",
-        "accounting.VATReturn": "fas fa-file-alt",
         
-        # Construction
         "construction.Site": "fas fa-hard-hat",
         "construction.Worker": "fas fa-user-hard-hat",
-        "construction.Attendance": "fas fa-calendar-check",
-        "construction.DailyLog": "fas fa-clipboard",
-        "construction.MaterialConsumption": "fas fa-tools",
         "construction.Equipment": "fas fa-tractor",
-        "construction.EquipmentUsageLog": "fas fa-clipboard-list",
+        
+        "hr.Employee": "fas fa-id-card",
+        "hr.Department": "fas fa-sitemap",
+        "hr.Attendance": "fas fa-calendar-check",
+        "hr.Payroll": "fas fa-money-bill-wave",
     },
     
-    # Icons that are used when one is not manually specified
     "default_icon_parents": "fas fa-chevron-circle-right",
     "default_icon_children": "fas fa-circle",
     
-    #################
-    # Related Modal #
-    #################
-    
-    # Use modals instead of popups
+    # UI Tweaks
     "related_modal_active": False,
-    
-    #############
-    # UI Tweaks #
-    #############
-    
-    # Relative paths to custom CSS/JS scripts (must be present in static files)
-    "custom_css": "admin/css/admin_custom.css",
-    "custom_js": "admin/js/fontawesome_loader.js",
-    
-    # Whether to link font from fonts.googleapis.com (use custom_css to supply font otherwise)
+    "custom_css": None,
+    "custom_js": None,
     "use_google_fonts_cdn": True,
+    "show_ui_builder": False,
     
-    # Whether to show the UI customizer on the sidebar
-    "show_ui_builder": True,
-    
-    ###############
-    # Change view #
-    ###############
-    
-    # Render out the change view as a single form, or in tabs, current options are
-    # - single
-    # - horizontal_tabs (default)
-    # - vertical_tabs
-    # - collapsible
-    # - carousel
+    # Change form format
     "changeform_format": "horizontal_tabs",
-    
-    # Override change forms on a per modeladmin basis
     "changeform_format_overrides": {
         "auth.user": "horizontal_tabs",
-        "inventory.product": "horizontal_tabs",
-        "sales.invoice": "horizontal_tabs",
-        "purchase.purchaseorder": "horizontal_tabs",
+        "users.user": "horizontal_tabs",
     },
     
-    # Add a language dropdown into the admin
     "language_chooser": False,
 }
-
-# ============================================================================
-# JAZZMIN UI TWEAKS - Custom Theme Configuration
-# ============================================================================
 
 JAZZMIN_UI_TWEAKS = {
     "navbar_small_text": False,
     "footer_small_text": False,
     "body_small_text": False,
     "brand_small_text": False,
-    "brand_colour": "navbar-indigo",
-    "accent": "accent-indigo",
-    "navbar": "navbar-white navbar-light",  # Light navbar for better contrast
+    "brand_colour": "navbar-white",
+    "accent": "accent-primary",
+    "navbar": "navbar-white navbar-light",
     "no_navbar_border": False,
     "navbar_fixed": True,
     "layout_boxed": False,
     "footer_fixed": False,
     "sidebar_fixed": True,
-    "sidebar": "sidebar-dark-indigo",
+    "sidebar": "sidebar-light-primary",
     "sidebar_nav_small_text": False,
     "sidebar_disable_expand": False,
     "sidebar_nav_child_indent": True,
     "sidebar_nav_compact_style": False,
     "sidebar_nav_legacy_style": False,
-    "sidebar_nav_flat_style": False,
-    "theme": "flatly",  # Clean, professional theme
-    "dark_mode_theme": "darkly",
+    "sidebar_nav_flat_style": True,
+    "theme": "flatly",
+    "dark_mode_theme": None,
     "button_classes": {
         "primary": "btn-primary",
         "secondary": "btn-secondary",
@@ -497,5 +400,5 @@ JAZZMIN_UI_TWEAKS = {
         "danger": "btn-danger",
         "success": "btn-success"
     },
-    "actions_sticky_top": True
+    "actions_sticky_top": False
 }
