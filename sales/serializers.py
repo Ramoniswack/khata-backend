@@ -236,11 +236,6 @@ class PaymentReceivedSerializer(serializers.ModelSerializer):
             'id', 'payment_number', 'received_by', 'received_by_name',
             'created_at', 'updated_at', 'customer_name', 'invoice_number'
         ]
-    
-    def create(self, validated_data):
-        # Set received_by from request user
-        validated_data['received_by'] = self.context['request'].user
-        return super().create(validated_data)
 
 
 class CustomerDetailSerializer(serializers.ModelSerializer):

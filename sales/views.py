@@ -996,7 +996,10 @@ class PaymentReceivedViewSet(viewsets.ModelViewSet):
         )
     
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.tenant)
+        serializer.save(
+            tenant=self.request.user.tenant,
+            received_by=self.request.user
+        )
 
 
 

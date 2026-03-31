@@ -51,7 +51,9 @@ urlpatterns = [
     path('payments/<int:pk>/', PaymentReceivedViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='payment-received-detail'),
     
     # Reports
-    path('reports/summary/', SalesReportsViewSet.as_view({'get': 'summary'}), name='sales-reports-summary'),
+    path('reports/summary/', SalesReportsViewSet.as_view({'get': 'sales_summary'}), name='sales-reports-summary'),
     path('reports/by_customer/', SalesReportsViewSet.as_view({'get': 'by_customer'}), name='sales-reports-by-customer'),
     path('reports/by_product/', SalesReportsViewSet.as_view({'get': 'by_product'}), name='sales-reports-by-product'),
+    path('reports/by_category/', SalesReportsViewSet.as_view({'get': 'by_category'}), name='sales-reports-by-category'),
+    path('reports/tax_report/', SalesReportsViewSet.as_view({'get': 'tax_report'}), name='sales-reports-tax'),
 ]
