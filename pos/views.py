@@ -14,12 +14,117 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from users.dynamic_permissions import DynamicModulePermission
-from .models import POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
+from .models import POSSession, POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
 from .serializers import (
-    POSDiscountSerializer, POSTransactionSerializer, POSTransactionCreateSerializer,
+    POSSessionSerializer, POSDiscountSerializer, POSTransactionSerializer, POSTransactionCreateSerializer,
     POSDailySalesReportSerializer, ProductSearchSerializer
 )
 from inventory.models import Product
+
+
+@extend_schema_view(
+    list=extend_schema(description="List all POS sessions", tags=["POS - Sessions"]),
+    retrieve=extend_schema(description="Get session details", tags=["POS - Sessions"]),
+    create=extend_schema(description="Open a new POS session", tags=["POS - Sessions"]),
+    update=extend_schema(description="Update session", tags=["POS - Sessions"]),
+    partial_update=extend_schema(description="Partially update session", tags=["POS - Sessions"]),
+    destroy=extend_schema(description="Delete a session", tags=["POS - Sessions"]),
+)
+class POSSessionViewSet(viewsets.ModelViewSet):
+    """ViewSet for POS Session management"""
+    permission_classes = [DynamicModulePermission]
+    permission_module = 'pos'
+    serializer_class = POSSessionSerializer
+    filterset_fields = ['status', 'cashier']
+    search_fields = ['session_number', 'cashier__username']
+    ordering_fields = ['opened_at', 'closed_at']
+    ordering = ['-opened_at']
+    
+    def get_queryset(self):
+        """Filter by current tenant"""
+        return POSSession.objects.filter(
+            tenant=self.request.user.tenant
+        ).select_related('cashier', 'warehouse')
+    
+    def perform_create(self, serializer):
+        """Set tenant and cashier when creating session"""
+        serializer.save(
+            tenant=self.request.user.tenant,
+            cashier=self.request.user
+        )
+    
+    @extend_schema(
+        tags=['POS - Sessions'],
+        summary='Close a POS session',
+        description='Close an open session and calculate final totals',
+        parameters=[
+            OpenApiParameter(
+                name='closing_cash',
+                description='Actual cash counted at closing',
+                required=True,
+                type=OpenApiTypes.NUMBER
+            ),
+        ]
+    )
+    @action(detail=True, methods=['post'])
+    def close(self, request, pk=None):
+        """Close a session"""
+        session = self.get_object()
+        
+        if session.status == 'closed':
+            return Response(
+                {'error': 'Session is already closed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        closing_cash = request.data.get('closing_cash')
+        if closing_cash is None:
+            return Response(
+                {'error': 'closing_cash is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            closing_cash = Decimal(str(closing_cash))
+        except:
+            return Response(
+                {'error': 'Invalid closing_cash value'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate session totals from transactions
+        transactions = POSTransaction.objects.filter(
+            tenant=request.user.tenant,
+            session=session,
+            status='completed'
+        )
+        
+        aggregates = transactions.aggregate(
+            total_count=Count('id'),
+            total_sales=Sum('total'),
+            cash_sales=Sum('total', filter=Q(payment_method='cash')),
+            card_sales=Sum('total', filter=Q(payment_method='card')),
+            upi_sales=Sum('total', filter=Q(payment_method='upi')),
+            credit_sales=Sum('total', filter=Q(payment_method='credit')),
+        )
+        
+        # Update session
+        session.total_transactions = aggregates['total_count'] or 0
+        session.total_sales = aggregates['total_sales'] or Decimal('0.00')
+        session.cash_sales = aggregates['cash_sales'] or Decimal('0.00')
+        session.card_sales = aggregates['card_sales'] or Decimal('0.00')
+        session.upi_sales = aggregates['upi_sales'] or Decimal('0.00')
+        session.credit_sales = aggregates['credit_sales'] or Decimal('0.00')
+        
+        session.expected_cash = session.opening_cash + session.cash_sales
+        session.closing_cash = closing_cash
+        session.cash_variance = closing_cash - session.expected_cash
+        session.closed_at = timezone.now()
+        session.status = 'closed'
+        session.save()
+        
+        serializer = self.get_serializer(session)
+        return Response(serializer.data)
 
 
 @extend_schema_view(

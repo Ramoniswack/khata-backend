@@ -4,9 +4,29 @@ POS Serializers for API
 
 from rest_framework import serializers
 from decimal import Decimal
-from .models import POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
+from .models import POSSession, POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
 from inventory.models import Product, Warehouse
 from sales.models import Customer
+
+
+class POSSessionSerializer(serializers.ModelSerializer):
+    """Serializer for POS Sessions"""
+    cashier_name = serializers.CharField(source='cashier.username', read_only=True)
+    warehouse_name = serializers.CharField(source='warehouse.name', read_only=True)
+    
+    class Meta:
+        model = POSSession
+        fields = [
+            'id', 'session_number', 'cashier', 'cashier_name', 'warehouse', 'warehouse_name',
+            'opened_at', 'closed_at', 'opening_cash', 'closing_cash', 'expected_cash',
+            'cash_variance', 'total_transactions', 'total_sales', 'cash_sales',
+            'card_sales', 'upi_sales', 'credit_sales', 'status', 'notes', 'created_at'
+        ]
+        read_only_fields = [
+            'session_number', 'opened_at', 'closed_at', 'expected_cash', 'cash_variance',
+            'total_transactions', 'total_sales', 'cash_sales', 'card_sales',
+            'upi_sales', 'credit_sales', 'status', 'created_at'
+        ]
 
 
 class POSDiscountSerializer(serializers.ModelSerializer):

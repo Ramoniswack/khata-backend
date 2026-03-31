@@ -2,6 +2,7 @@
 POS (Point of Sale) Models for Khata
 
 This module defines models for the retail/POS system including:
+- POS Sessions (shift management)
 - POS Transactions (sales)
 - POS Transaction Lines (items in cart)
 - Discounts
@@ -12,6 +13,136 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal
 from utils.models import TenantModel
+
+
+class POSSession(TenantModel):
+    """
+    POS Session - represents a cashier's shift/session
+    Tracks opening/closing cash and all transactions during the session
+    """
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('closed', 'Closed'),
+    ]
+    
+    # Session identification
+    session_number = models.CharField(max_length=50, unique=True)
+    
+    # Cashier
+    cashier = models.ForeignKey(
+        'users.User',
+        on_delete=models.PROTECT,
+        related_name='pos_sessions'
+    )
+    
+    # Warehouse/Store
+    warehouse = models.ForeignKey(
+        'inventory.Warehouse',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pos_sessions'
+    )
+    
+    # Session timing
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Cash management
+    opening_cash = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Cash in drawer at session start'
+    )
+    closing_cash = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Actual cash counted at session end'
+    )
+    expected_cash = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        help_text='Expected cash (opening + cash sales)'
+    )
+    cash_variance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text='Difference between expected and actual (can be negative)'
+    )
+    
+    # Session summary (calculated when closed)
+    total_transactions = models.IntegerField(default=0)
+    total_sales = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    cash_sales = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    card_sales = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    upi_sales = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    credit_sales = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    
+    # Status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    
+    # Notes
+    notes = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = 'pos_sessions'
+        ordering = ['-opened_at']
+        indexes = [
+            models.Index(fields=['tenant', 'cashier', 'opened_at']),
+            models.Index(fields=['tenant', 'status']),
+        ]
+    
+    def __str__(self):
+        return f"Session {self.session_number} - {self.cashier.username}"
+    
+    def save(self, *args, **kwargs):
+        # Generate session number if not exists
+        if not self.session_number:
+            from django.db import transaction
+            with transaction.atomic():
+                last_session = POSSession._base_manager.select_for_update().all().order_by('-id').first()
+                if last_session and last_session.session_number.startswith('SES-'):
+                    try:
+                        last_num = int(last_session.session_number.split('-')[1])
+                        self.session_number = f"SES-{str(last_num + 1).zfill(4)}"
+                    except:
+                        self.session_number = "SES-0001"
+                else:
+                    self.session_number = "SES-0001"
+        
+        super().save(*args, **kwargs)
 
 
 class POSDiscount(TenantModel):
@@ -116,6 +247,15 @@ class POSTransaction(TenantModel):
     # Transaction details
     transaction_number = models.CharField(max_length=50, unique=True)
     date = models.DateTimeField(auto_now_add=True)
+    
+    # Session (optional - links transaction to a session)
+    session = models.ForeignKey(
+        POSSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='transactions'
+    )
     
     # Customer (optional for walk-in customers)
     customer = models.ForeignKey(

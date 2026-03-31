@@ -3,7 +3,38 @@ POS Admin Configuration
 """
 
 from django.contrib import admin
-from .models import POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
+from .models import POSSession, POSDiscount, POSTransaction, POSTransactionLine, POSDailySalesReport
+
+
+@admin.register(POSSession)
+class POSSessionAdmin(admin.ModelAdmin):
+    list_display = ['session_number', 'cashier', 'opened_at', 'closed_at', 'status', 'total_sales', 'cash_variance', 'tenant']
+    list_filter = ['status', 'cashier', 'opened_at', 'tenant']
+    search_fields = ['session_number', 'cashier__username']
+    readonly_fields = ['session_number', 'opened_at', 'closed_at', 'expected_cash', 'cash_variance', 'created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Session Details', {
+            'fields': ('tenant', 'session_number', 'cashier', 'warehouse', 'status')
+        }),
+        ('Timing', {
+            'fields': ('opened_at', 'closed_at')
+        }),
+        ('Cash Management', {
+            'fields': ('opening_cash', 'closing_cash', 'expected_cash', 'cash_variance')
+        }),
+        ('Session Summary', {
+            'fields': ('total_transactions', 'total_sales', 'cash_sales', 'card_sales', 'upi_sales', 'credit_sales')
+        }),
+        ('Notes', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
 
 
 @admin.register(POSDiscount)
