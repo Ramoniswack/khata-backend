@@ -28,6 +28,7 @@ class Supplier(TenantModel):
     name = models.CharField(max_length=255)
     phone = models.CharField(max_length=20)
     email = models.EmailField(blank=True, null=True)
+    website = models.URLField(blank=True, null=True)
     pan = models.CharField(max_length=20, blank=True, null=True, verbose_name='PAN/VAT Number')
     address = models.TextField(blank=True, null=True)
     type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='Company')
@@ -229,8 +230,18 @@ class PurchaseOrder(TenantModel):
     def calculate_totals(self):
         """Calculate order totals from line items"""
         lines = self.lines.all()
-        self.subtotal = sum(line.amount for line in lines)
-        self.total = self.subtotal + self.tax
+        subtotal = Decimal('0')
+        tax = Decimal('0')
+        
+        for line in lines:
+            base_amount = line.quantity * line.unit_price
+            tax_amount = base_amount * (line.tax_percent / Decimal('100'))
+            subtotal += base_amount
+            tax += tax_amount
+        
+        self.subtotal = subtotal
+        self.tax = tax
+        self.total = subtotal + tax
         self.save()
     
     @property

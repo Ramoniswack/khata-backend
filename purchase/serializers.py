@@ -13,7 +13,7 @@ class SupplierSerializer(serializers.ModelSerializer):
     class Meta:
         model = Supplier
         fields = [
-            'id', 'name', 'phone', 'email', 'pan', 'address', 'type',
+            'id', 'name', 'phone', 'email', 'website', 'pan', 'address', 'type',
             'credit_limit', 'payment_terms', 'status', 'bank_name',
             'bank_account', 'lead_time_days', 'total_orders',
             'total_purchased', 'outstanding_amount', 'tenant', 'created_at', 'updated_at'
@@ -144,12 +144,12 @@ class PurchaseOrderCreateSerializer(serializers.ModelSerializer):
             'reference', 'payment_terms', 'status', 'subtotal', 'tax', 'total',
             'purchase_request', 'notes', 'lines'
         ]
-        read_only_fields = ['id', 'po_number']
+        read_only_fields = ['id', 'po_number', 'subtotal', 'tax', 'total']
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Make optional fields not required
-        for field_name in ['reference', 'purchase_request', 'notes']:
+        for field_name in ['reference', 'purchase_request', 'notes', 'subtotal', 'tax', 'total']:
             if field_name in self.fields:
                 self.fields[field_name].required = False
                 self.fields[field_name].allow_null = True
@@ -163,6 +163,9 @@ class PurchaseOrderCreateSerializer(serializers.ModelSerializer):
         tenant = purchase_order.tenant
         
         for line_data in lines_data:
+            # Don't pass received_quantity if it's in the data
+            line_data.pop('received_quantity', None)
+            
             PurchaseOrderLine.objects.create(
                 tenant=tenant,
                 purchase_order=purchase_order,

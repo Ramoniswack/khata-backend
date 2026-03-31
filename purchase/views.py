@@ -304,13 +304,33 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     
     def create(self, request, *args, **kwargs):
         """Override create to add better error logging"""
+        print(f"[PO Create] Request data: {request.data}")
+        print(f"[PO Create] User: {request.user}")
+        print(f"[PO Create] Tenant: {request.user.tenant}")
+        
         try:
-            return super().create(request, *args, **kwargs)
+            serializer = self.get_serializer(data=request.data)
+            print(f"[PO Create] Serializer created")
+            
+            if not serializer.is_valid():
+                print(f"[PO Create] Validation errors: {serializer.errors}")
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            print(f"[PO Create] Serializer is valid, performing create")
+            self.perform_create(serializer)
+            
+            print(f"[PO Create] Create successful")
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+            
         except Exception as e:
             import traceback
             print(f"[PO Create Exception] {str(e)}")
             print(traceback.format_exc())
-            raise
+            return Response(
+                {'detail': str(e), 'type': type(e).__name__},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     def perform_create(self, serializer):
         from django.utils import timezone

@@ -14,7 +14,7 @@ urlpatterns = [
     path('summary/', ReportViewSet.as_view({'get': 'summary'}), name='report-summary'),
     
     # Financial Reports
-    path('financial/', ReportViewSet.as_view({'get': 'financial_reports'}), name='report-financial'),
+    path('financial-reports/', ReportViewSet.as_view({'get': 'financial_reports'}), name='report-financial-reports'),
     path('profit-and-loss/', ReportViewSet.as_view({'get': 'profit_and_loss'}), name='report-profit-loss'),
     path('revenue-expense-trend/', ReportViewSet.as_view({'get': 'revenue_expense_trend'}), name='report-revenue-expense-trend'),
     
