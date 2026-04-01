@@ -3,7 +3,9 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from drf_spectacular.utils import extend_schema
 from .views import (
     RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView, 
-    AuditLogViewSet, get_permissions, update_permissions
+    AuditLogViewSet, get_permissions, update_permissions,
+    update_user_profile, change_password, get_notification_preferences,
+    update_notification_preferences, get_active_sessions, revoke_session
 )
 
 # Add schema documentation to JWT refresh view
@@ -19,6 +21,14 @@ urlpatterns = [
     path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', UserProfileView.as_view(), name='user_profile'),
+    
+    # User Settings
+    path('me/', update_user_profile, name='update_user_profile'),
+    path('password/', change_password, name='change_password'),
+    path('preferences/', get_notification_preferences, name='get_notification_preferences'),
+    path('preferences/update/', update_notification_preferences, name='update_notification_preferences'),
+    path('sessions/', get_active_sessions, name='get_active_sessions'),
+    path('sessions/<str:session_id>/', revoke_session, name='revoke_session'),
     
     # Permissions
     path('permissions/', get_permissions, name='get_permissions'),

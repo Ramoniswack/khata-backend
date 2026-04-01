@@ -26,6 +26,7 @@ class RolePermission(TenantModel):
     ]
     
     MODULE_CHOICES = [
+        ('dashboard', 'Dashboard'),
         ('sales', 'Sales'),
         ('purchase', 'Purchase'),
         ('inventory', 'Inventory'),
@@ -74,6 +75,7 @@ def get_default_permissions():
     return {
         'admin': {
             # Admin has all permissions
+            'dashboard': ['view'],
             'sales': ['view', 'create', 'edit', 'delete', 'export'],
             'purchase': ['view', 'create', 'edit', 'delete', 'export', 'approve'],
             'inventory': ['view', 'create', 'edit', 'delete', 'export'],
@@ -86,6 +88,7 @@ def get_default_permissions():
             'pos': ['view', 'create', 'edit', 'delete'],
         },
         'manager': {
+            'dashboard': ['view'],
             'sales': ['view', 'create', 'edit', 'delete'],
             'purchase': ['view', 'create', 'edit', 'delete', 'approve'],
             'inventory': ['view', 'create', 'edit'],
@@ -97,24 +100,28 @@ def get_default_permissions():
             'pos': ['view', 'create', 'edit'],
         },
         'supervisor': {
+            'dashboard': ['view'],
             'inventory': ['view', 'create', 'edit'],
             'construction': ['view', 'create', 'edit'],
             'hardware': ['view', 'create', 'edit'],
             'reports': ['view'],
         },
         'accountant': {
+            'dashboard': ['view'],
             'accounting': ['view', 'create', 'edit', 'delete'],
             'sales': ['view'],
             'purchase': ['view'],
             'reports': ['view', 'export'],
         },
         'cashier': {
+            'dashboard': ['view'],
             'sales': ['view', 'create'],
             'inventory': ['view'],
             'pos': ['view', 'create', 'edit', 'delete'],
             'reports': ['view'],
         },
         'viewer': {
+            'dashboard': ['view'],
             'sales': ['view'],
             'purchase': ['view'],
             'inventory': ['view'],

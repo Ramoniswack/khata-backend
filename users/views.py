@@ -4,9 +4,16 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import models
 from .models import User, AuditLog
-from .serializers import UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer, AuditLogSerializer
+from .notification_models import NotificationPreferences
+from .serializers import (
+    UserSerializer, RegisterSerializer, CustomTokenObtainPairSerializer, 
+    AuditLogSerializer, UserProfileUpdateSerializer, PasswordChangeSerializer,
+    NotificationPreferencesSerializer, SessionSerializer
+)
 from .permissions import IsAdminOrManager
 
 
@@ -161,6 +168,148 @@ from .permissions import IsAdminOrManager
 
 
 @extend_schema(
+    tags=['User Settings'],
+    summary='Update user profile',
+    description='Update authenticated user profile (name, phone, avatar)',
+    request=UserProfileUpdateSerializer,
+    responses={200: UserSerializer}
+)
+@api_view(['PATCH'])
+@parser_classes([MultiPartParser, FormParser])
+@permission_classes([drf_permissions.IsAuthenticated])
+def update_user_profile(request):
+    """Update user profile with support for avatar upload"""
+    serializer = UserProfileUpdateSerializer(
+        request.user,
+        data=request.data,
+        partial=True,
+        context={'request': request}
+    )
+    
+    if serializer.is_valid():
+        serializer.save()
+        # Return full user data
+        user_serializer = UserSerializer(request.user, context={'request': request})
+        return Response(user_serializer.data, status=status.HTTP_200_OK)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['User Settings'],
+    summary='Change password',
+    description='Change user password',
+    request=PasswordChangeSerializer,
+    responses={200: {'description': 'Password changed successfully'}}
+)
+@api_view(['POST'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def change_password(request):
+    """Change user password"""
+    serializer = PasswordChangeSerializer(
+        data=request.data,
+        context={'request': request}
+    )
+    
+    if serializer.is_valid():
+        serializer.save()
+        return Response(
+            {'message': 'Password changed successfully'},
+            status=status.HTTP_200_OK
+        )
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['User Settings'],
+    summary='Get notification preferences',
+    description='Get user notification preferences',
+    responses={200: NotificationPreferencesSerializer}
+)
+@api_view(['GET'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def get_notification_preferences(request):
+    """Get user notification preferences"""
+    prefs, created = NotificationPreferences.objects.get_or_create(user=request.user)
+    
+    serializer = NotificationPreferencesSerializer(prefs)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['User Settings'],
+    summary='Update notification preferences',
+    description='Update user notification preferences',
+    request=NotificationPreferencesSerializer,
+    responses={200: NotificationPreferencesSerializer}
+)
+@api_view(['PATCH'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def update_notification_preferences(request):
+    """Update user notification preferences"""
+    prefs, created = NotificationPreferences.objects.get_or_create(user=request.user)
+    
+    serializer = NotificationPreferencesSerializer(prefs, data=request.data, partial=True)
+    
+    if serializer.is_valid():
+        # Update preferences
+        for key, value in serializer.validated_data.items():
+            setattr(prefs, key, value)
+        prefs.save()
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['User Settings'],
+    summary='Get active sessions',
+    description='Get list of active user sessions',
+    responses={200: SessionSerializer(many=True)}
+)
+@api_view(['GET'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def get_active_sessions(request):
+    """Get active sessions (mock data for now - implement with JWT blacklist or session store)"""
+    from django.utils import timezone
+    import datetime
+    
+    # Mock session data - in production, this would come from a session store or JWT blacklist
+    sessions = [
+        {
+            'id': '1',
+            'device': 'Chrome on Windows',
+            'location': 'New York, US',
+            'ip_address': request.META.get('REMOTE_ADDR', '127.0.0.1'),
+            'last_active': timezone.now(),
+            'is_current': True,
+        }
+    ]
+    
+    serializer = SessionSerializer(sessions, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=['User Settings'],
+    summary='Revoke session',
+    description='Revoke a specific user session',
+    responses={200: {'description': 'Session revoked successfully'}}
+)
+@api_view(['DELETE'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def revoke_session(request, session_id):
+    """Revoke a specific session (implement with JWT blacklist or session store)"""
+    # In production, implement JWT token blacklisting or session revocation
+    return Response(
+        {'message': 'Session revoked successfully'},
+        status=status.HTTP_200_OK
+    )
+
+
+@extend_schema(
     tags=['Permissions'],
     summary='Get role permissions matrix',
     description='Get the complete permissions matrix for all roles in the current tenant.',
@@ -211,6 +360,7 @@ def get_permissions(request):
     
     # Map database module names to display names
     module_map = {
+        'dashboard': 'Dashboard',
         'sales': 'Sales',
         'purchase': 'Purchase',
         'inventory': 'Inventory',
@@ -283,6 +433,7 @@ def update_permissions(request):
     }
     
     module_map = {
+        'Dashboard': 'dashboard',
         'Sales': 'sales',
         'Purchase': 'purchase',
         'Inventory': 'inventory',

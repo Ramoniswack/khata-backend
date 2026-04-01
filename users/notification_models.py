@@ -100,3 +100,36 @@ class Notification(TenantModel):
             self.is_read = True
             self.read_at = timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
+
+
+class NotificationPreferences(models.Model):
+    """
+    User notification preferences for email and push notifications
+    """
+    user = models.OneToOneField(
+        'users.User',
+        on_delete=models.CASCADE,
+        related_name='notification_preferences'
+    )
+    
+    # Email preferences
+    email_order_updates = models.BooleanField(default=True)
+    email_payment_reminders = models.BooleanField(default=True)
+    email_inventory_alerts = models.BooleanField(default=True)
+    email_team_activity = models.BooleanField(default=True)
+    
+    # Push notification preferences
+    push_desktop = models.BooleanField(default=False)
+    push_mobile = models.BooleanField(default=False)
+    push_sound = models.BooleanField(default=False)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'notification_preferences'
+        verbose_name = 'Notification Preference'
+        verbose_name_plural = 'Notification Preferences'
+    
+    def __str__(self):
+        return f"Preferences for {self.user.username}"

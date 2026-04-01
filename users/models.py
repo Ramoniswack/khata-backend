@@ -33,6 +33,7 @@ class User(AbstractUser):
     )
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='viewer')
     phone = models.CharField(max_length=20, blank=True)
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
     
     # For managers - assigned sites/projects
     assigned_sites = models.ManyToManyField(

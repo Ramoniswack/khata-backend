@@ -216,6 +216,66 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating user profile (name, phone, etc.)"""
+    avatar = serializers.ImageField(required=False, allow_null=True)
+    
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'phone', 'avatar']
+    
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    """Serializer for changing password"""
+    current_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True, min_length=8)
+    
+    def validate_current_password(self, value):
+        user = self.context['request'].user
+        if not user.check_password(value):
+            raise serializers.ValidationError('Current password is incorrect.')
+        return value
+    
+    def validate_new_password(self, value):
+        # Add password strength validation
+        if len(value) < 8:
+            raise serializers.ValidationError('Password must be at least 8 characters long.')
+        return value
+    
+    def save(self):
+        user = self.context['request'].user
+        user.set_password(self.validated_data['new_password'])
+        user.save()
+        return user
+
+
+class NotificationPreferencesSerializer(serializers.Serializer):
+    """Serializer for notification preferences"""
+    email_order_updates = serializers.BooleanField(default=True)
+    email_payment_reminders = serializers.BooleanField(default=True)
+    email_inventory_alerts = serializers.BooleanField(default=True)
+    email_team_activity = serializers.BooleanField(default=True)
+    push_desktop = serializers.BooleanField(default=False)
+    push_mobile = serializers.BooleanField(default=False)
+    push_sound = serializers.BooleanField(default=False)
+
+
+class SessionSerializer(serializers.Serializer):
+    """Serializer for active sessions"""
+    id = serializers.CharField()
+    device = serializers.CharField()
+    location = serializers.CharField()
+    ip_address = serializers.CharField()
+    last_active = serializers.DateTimeField()
+    is_current = serializers.BooleanField()
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     username = serializers.CharField(required=False, help_text="Username (auto-generated from email if not provided)")
