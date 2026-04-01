@@ -30,6 +30,24 @@ class SalesOrderLineSerializer(serializers.ModelSerializer):
             'quantity', 'unit_price', 'discount_percent', 'tax_percent', 'amount'
         ]
         read_only_fields = ['id', 'amount']
+    
+    def validate(self, data):
+        """Validate stock availability"""
+        product = data.get('product')
+        quantity = data.get('quantity')
+        
+        if product and quantity:
+            total_stock = product.get_total_stock()
+            if total_stock <= 0:
+                raise serializers.ValidationError({
+                    'product': f'{product.name} is out of stock. Cannot create sales order.'
+                })
+            if total_stock < quantity:
+                raise serializers.ValidationError({
+                    'quantity': f'Insufficient stock for {product.name}. Available: {total_stock}, Requested: {quantity}'
+                })
+        
+        return data
 
 
 class SalesOrderSerializer(serializers.ModelSerializer):
@@ -59,7 +77,27 @@ class SalesOrderCreateSerializer(serializers.ModelSerializer):
             'payment_type', 'subtotal', 'discount', 'tax', 'total', 'notes', 'lines'
         ]
         read_only_fields = ['id', 'order_number']
-
+    
+    def validate_lines(self, lines_data):
+        """Validate all line items have sufficient stock"""
+        from inventory.models import Product
+        
+        for line_data in lines_data:
+            product = line_data.get('product')
+            quantity = line_data.get('quantity')
+            
+            if product and quantity:
+                total_stock = product.get_total_stock()
+                if total_stock <= 0:
+                    raise serializers.ValidationError(
+                        f'{product.name} is out of stock. Cannot create sales order.'
+                    )
+                if total_stock < quantity:
+                    raise serializers.ValidationError(
+                        f'Insufficient stock for {product.name}. Available: {total_stock}, Requested: {quantity}'
+                    )
+        
+        return lines_data
     
     def create(self, validated_data):
         lines_data = validated_data.pop('lines')

@@ -61,9 +61,13 @@ class POSTransactionLineSerializer(serializers.ModelSerializer):
         # Check stock availability
         if product:
             total_stock = product.get_total_stock()
+            if total_stock <= 0:
+                raise serializers.ValidationError({
+                    'product': f'{product.name} is out of stock. Cannot add to transaction.'
+                })
             if total_stock < quantity:
                 raise serializers.ValidationError({
-                    'quantity': f'Insufficient stock. Available: {total_stock}'
+                    'quantity': f'Insufficient stock for {product.name}. Available: {total_stock}, Requested: {quantity}'
                 })
         
         return data
@@ -97,6 +101,22 @@ class POSTransactionCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'lines': 'At least one item is required'
             })
+        
+        # Validate stock availability for all line items
+        for line_data in data.get('lines', []):
+            product = line_data.get('product')
+            quantity = line_data.get('quantity')
+            
+            if product:
+                total_stock = product.get_total_stock()
+                if total_stock <= 0:
+                    raise serializers.ValidationError({
+                        'lines': f'{product.name} is out of stock. Cannot complete transaction.'
+                    })
+                if total_stock < quantity:
+                    raise serializers.ValidationError({
+                        'lines': f'Insufficient stock for {product.name}. Available: {total_stock}, Requested: {quantity}'
+                    })
         
         return data
     

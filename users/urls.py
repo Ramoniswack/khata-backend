@@ -27,7 +27,6 @@ urlpatterns = [
     # Users
     path('users/', UserViewSet.as_view({'get': 'list', 'post': 'create'}), name='user-list'),
     path('users/<int:pk>/', UserViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='user-detail'),
-    path('users/<int:pk>/reset_password/', UserViewSet.as_view({'post': 'reset_password'}), name='user-reset-password'),
     
     # Audit Logs
     path('audit-logs/', AuditLogViewSet.as_view({'get': 'list'}), name='audit-log-list'),

@@ -17,11 +17,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
         
+        # Get tenant (either direct or via membership)
+        tenant = user.get_tenant()
+        
         # Add custom claims to the token
         token['role'] = user.role
-        token['tenant_id'] = user.tenant.id if user.tenant else None
-        token['tenant_slug'] = user.tenant.slug if user.tenant else None
-        token['tenant_name'] = user.tenant.name if user.tenant else None
+        token['tenant_id'] = tenant.id if tenant else None
+        token['tenant_slug'] = tenant.slug if tenant else None
+        token['tenant_name'] = tenant.name if tenant else None
         
         return token
     
@@ -86,14 +89,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         }
         
         # Add tenant information to the response
-        if user.tenant:
+        tenant = user.get_tenant()
+        if tenant:
             data['tenant'] = {
-                'id': user.tenant.id,
-                'name': user.tenant.name,
-                'slug': user.tenant.slug,
-                'business_type': user.tenant.business_type,
-                'plan_type': user.tenant.plan_type,
-                'active_modules': user.tenant.active_modules,
+                'id': tenant.id,
+                'name': tenant.name,
+                'slug': tenant.slug,
+                'business_type': tenant.business_type,
+                'plan_type': tenant.plan_type,
+                'active_modules': tenant.active_modules,
             }
         else:
             data['tenant'] = None
@@ -275,6 +279,8 @@ class RegisterSerializer(serializers.ModelSerializer):
 class AuditLogSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     action_display = serializers.CharField(source='get_action_display', read_only=True)
+    # Explicitly define ip_address as CharField to avoid Python 3.14 compatibility issue
+    ip_address = serializers.CharField(allow_null=True, allow_blank=True, required=False)
     
     class Meta:
         model = AuditLog
@@ -309,6 +315,7 @@ class PermissionsMatrixSerializer(serializers.Serializer):
     Manager = serializers.DictField(child=serializers.BooleanField())
     Supervisor = serializers.DictField(child=serializers.BooleanField())
     Accountant = serializers.DictField(child=serializers.BooleanField())
+    Cashier = serializers.DictField(child=serializers.BooleanField())
     Viewer = serializers.DictField(child=serializers.BooleanField())
 
 
@@ -321,4 +328,5 @@ class UpdatePermissionsSerializer(serializers.Serializer):
     Manager = serializers.DictField(child=serializers.BooleanField(), required=False)
     Supervisor = serializers.DictField(child=serializers.BooleanField(), required=False)
     Accountant = serializers.DictField(child=serializers.BooleanField(), required=False)
+    Cashier = serializers.DictField(child=serializers.BooleanField(), required=False)
     Viewer = serializers.DictField(child=serializers.BooleanField(), required=False)

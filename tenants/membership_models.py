@@ -28,6 +28,7 @@ class UserTenantMembership(models.Model):
             ('manager', 'Manager'),
             ('supervisor', 'Supervisor'),
             ('accountant', 'Accountant'),
+            ('cashier', 'Cashier'),
             ('viewer', 'Viewer'),
         ],
         default='viewer'

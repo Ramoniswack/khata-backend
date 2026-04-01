@@ -20,6 +20,7 @@ class User(AbstractUser):
         ('manager', 'Manager'),
         ('supervisor', 'Supervisor'),
         ('accountant', 'Accountant'),
+        ('cashier', 'Cashier'),
         ('viewer', 'Viewer'),
     ]
     
@@ -69,9 +70,31 @@ class User(AbstractUser):
         return self.role == 'accountant'
     
     @property
+    def is_cashier(self):
+        """Check if user is cashier"""
+        return self.role == 'cashier'
+    
+    @property
     def is_viewer(self):
         """Check if user is viewer"""
         return self.role == 'viewer'
+    
+    def get_tenant(self):
+        """
+        Get the user's tenant - either direct assignment or via membership.
+        For users with memberships, returns the first active membership's tenant.
+        """
+        # Direct tenant assignment (for admin/owner)
+        if self.tenant:
+            return self.tenant
+        
+        # Check for membership (for invited users)
+        from tenants.membership_models import UserTenantMembership
+        membership = UserTenantMembership.objects.filter(user=self).first()
+        if membership:
+            return membership.tenant
+        
+        return None
     
     def has_module_access(self, module):
         """
@@ -81,12 +104,15 @@ class User(AbstractUser):
             module: One of 'sales', 'purchase', 'inventory', 'construction', 
                    'accounting', 'reports', 'pos', 'hr'
         """
+        # Get tenant (either direct or via membership)
+        tenant = self.get_tenant()
+        
         # If user has no tenant, they have no module access
-        if not self.tenant:
+        if not tenant:
             return False
             
         # First check if tenant has this module activated
-        if module not in self.tenant.active_modules:
+        if module not in tenant.active_modules:
             return False
         
         # Admin has access to everything (if tenant has the module)
@@ -95,13 +121,13 @@ class User(AbstractUser):
         
         # Module-specific access rules based on role
         access_matrix = {
-            'sales': ['admin', 'manager', 'accountant'],
+            'sales': ['admin', 'manager', 'accountant', 'cashier'],
             'purchase': ['admin', 'manager', 'accountant'],
-            'inventory': ['admin', 'manager', 'supervisor'],
+            'inventory': ['admin', 'manager', 'supervisor', 'cashier'],
             'construction': ['admin', 'manager', 'supervisor'],
             'accounting': ['admin', 'accountant'],
-            'reports': ['admin', 'manager', 'accountant'],
-            'pos': ['admin', 'manager'],
+            'reports': ['admin', 'manager', 'accountant', 'cashier'],
+            'pos': ['admin', 'manager', 'supervisor', 'cashier'],
             'hr': ['admin', 'manager'],
         }
         

@@ -193,28 +193,150 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 
 # DRF Spectacular (Swagger/OpenAPI)
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Khata ERP API',
+    'TITLE': 'Khata Business OS API',
     'DESCRIPTION': '''
-    Multi-tenant SaaS ERP platform for Nepal.
-    
-    ## Authentication
-    This API uses JWT (JSON Web Token) authentication. To authenticate:
-    1. Register a user at `/api/auth/register/`
-    2. Login at `/api/auth/login/` to get access and refresh tokens
-    3. Include the access token in the Authorization header: `Bearer <token>`
-    4. Refresh the token at `/api/auth/token/refresh/` when it expires
-    
-    ## Multi-Tenancy
-    All data is automatically scoped to your tenant (organization). You can only access data 
-    belonging to your organization.
-    
-    ## Modules
-    - **Core**: Authentication, Users, Inventory, Suppliers, Accounting
-    - **Construction**: Site management, labor tracking, budget monitoring
-    - **Hardware**: Stock management, credit sales, customer ledger
-    
-    ## Currency
-    All amounts are in NPR (Nepali Rupees) with paisa precision (2 decimal places).
+# Khata Business OS - Multi-Tenant ERP API
+
+## 🎯 Overview
+Khata is a comprehensive multi-tenant SaaS ERP platform designed for businesses in Nepal.
+It provides modules for inventory management, sales, purchases, accounting, construction,
+HR, and point-of-sale operations.
+
+## 🔐 Authentication
+
+### Getting Started
+1. **Register**: `POST /api/auth/register/` - Create a new account
+2. **Login**: `POST /api/auth/login/` - Get JWT access and refresh tokens
+3. **Authorize**: Click the 🔓 **Authorize** button above and enter: `Bearer <your_access_token>`
+4. **Refresh**: `POST /api/auth/token/refresh/` - Get new token when expired (1 hour lifetime)
+
+### Token Format
+```
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGc...
+```
+
+### Token Lifetime
+- **Access Token**: 1 hour
+- **Refresh Token**: 7 days
+
+## 🏢 Multi-Tenancy
+- All data is automatically scoped to your organization (tenant)
+- You can only access data belonging to your organization
+- Tenant is determined from your JWT token
+- No need to pass tenant ID in requests
+
+## 📦 Modules
+
+### Core Modules
+- **Authentication**: User registration, login, profile management
+- **Users**: User management with role-based access control
+- **Tenants**: Organization management and invitations
+
+### Business Modules
+- **Inventory**: Products, categories, warehouses, stock management
+- **Sales**: Customers, orders, quotations, invoices, credit management
+- **Purchase**: Suppliers, purchase orders, purchase requests (3-step approval)
+- **Accounting**: Chart of accounts, journal entries, financial reports
+- **Construction**: Sites, workers, equipment, daily logs, material consumption
+- **HR**: Employees, departments, attendance, leave, payroll
+- **POS**: Point of sale, sessions, transactions, discounts
+- **Reports**: Sales, purchase, inventory, financial, and custom reports
+
+## 💰 Currency
+All amounts are in **NPR (Nepali Rupees)** with 2 decimal places (paisa precision).
+
+Example: `"amount": "1250.50"` = Rs. 1,250.50
+
+## 📄 Pagination
+List endpoints return paginated results:
+- **Default**: 25 items per page
+- **Parameters**: `?page=2&page_size=50`
+- **Response includes**: `count`, `next`, `previous`, `results`
+
+Example:
+```json
+{
+  "count": 150,
+  "next": "http://localhost:8000/api/inventory/products/?page=3",
+  "previous": "http://localhost:8000/api/inventory/products/?page=1",
+  "results": [...]
+}
+```
+
+## 🔍 Filtering & Search
+Most list endpoints support:
+- **Search**: `?search=keyword` - Full-text search
+- **Filtering**: `?field=value` - Filter by field
+- **Ordering**: `?ordering=field` or `?ordering=-field` (descending)
+
+Examples:
+- `?search=steel&status=active`
+- `?category=2&ordering=-created_at`
+- `?customer=5&status=Confirmed`
+
+## ⚠️ Error Handling
+The API uses standard HTTP status codes:
+
+| Code | Meaning | Description |
+|------|---------|-------------|
+| 200 | OK | Request successful |
+| 201 | Created | Resource created successfully |
+| 400 | Bad Request | Validation error or invalid data |
+| 401 | Unauthorized | Authentication required or token expired |
+| 403 | Forbidden | Permission denied |
+| 404 | Not Found | Resource not found |
+| 500 | Internal Server Error | Server error |
+
+### Error Response Format
+```json
+{
+  "error": "Insufficient stock. Available: 50.00",
+  "detail": "Cannot complete operation",
+  "field": "quantity"
+}
+```
+
+### Validation Errors
+```json
+{
+  "email": ["This field is required."],
+  "quantity": ["Ensure this value is greater than 0."]
+}
+```
+
+## 🎭 Roles & Permissions
+- **Admin**: Full access to all modules
+- **Manager**: Manage operations, approve requests
+- **Supervisor**: Manage inventory and operations
+- **Accountant**: Manage accounting and financial data
+- **Cashier**: POS operations only
+- **Viewer**: Read-only access
+
+## 🚀 Quick Start Example
+
+### 1. Register & Login
+```bash
+# Register
+curl -X POST http://localhost:8000/api/auth/register/ \\
+  -H "Content-Type: application/json" \\
+  -d '{"username":"demo","email":"demo@example.com","password":"SecurePass123"}'
+
+# Login
+curl -X POST http://localhost:8000/api/auth/login/ \\
+  -H "Content-Type: application/json" \\
+  -d '{"username":"demo","password":"SecurePass123"}'
+```
+
+### 2. Use Token
+```bash
+curl -X GET http://localhost:8000/api/inventory/products/ \\
+  -H "Authorization: Bearer <your_access_token>"
+```
+
+## 📚 Additional Resources
+- **Swagger UI**: Interactive API testing (this page)
+- **ReDoc**: Alternative documentation view at `/api/redoc/`
+- **OpenAPI Schema**: Download at `/api/schema/`
     ''',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
@@ -225,30 +347,455 @@ SPECTACULAR_SETTINGS = {
         {'url': 'http://localhost:8000', 'description': 'Local server'},
     ],
     'TAGS': [
-        {'name': 'Authentication', 'description': 'User authentication and profile management'},
-        {'name': 'Inventory - Categories', 'description': 'Product category management'},
-        {'name': 'Inventory - Units', 'description': 'Units of measure management'},
-        {'name': 'Inventory - Warehouses', 'description': 'Warehouse/storage location management'},
-        {'name': 'Inventory - Products', 'description': 'Product management and stock tracking'},
-        {'name': 'Inventory - Stocks', 'description': 'Stock level monitoring'},
-        {'name': 'Inventory - Movements', 'description': 'Stock movement history'},
-        {'name': 'Inventory - Operations', 'description': 'Stock operations (in/out/transfer/adjustment)'},
-        {'name': 'Sales - Customers', 'description': 'Customer management'},
-        {'name': 'Sales - Orders', 'description': 'Sales order management'},
-        {'name': 'Sales - Quotations', 'description': 'Quotation management'},
-        {'name': 'Sales - Invoices', 'description': 'Invoice management'},
-        {'name': 'Sales - Credit Notes', 'description': 'Credit note management'},
-        {'name': 'Purchase - Suppliers', 'description': 'Supplier management'},
-        {'name': 'Purchase - Requests', 'description': 'Purchase request management with 3-step approval'},
-        {'name': 'Purchase - Orders', 'description': 'Purchase order management'},
-        {'name': 'Purchase - Invoices', 'description': 'Purchase invoice management'},
-        {'name': 'Purchase - Debit Notes', 'description': 'Debit note management'},
+        {
+            'name': 'Authentication',
+            'description': '''
+**User authentication and profile management**
+
+Endpoints for user registration, login, token refresh, and profile management.
+
+**Key Features:**
+- JWT-based authentication
+- Token refresh mechanism
+- User profile CRUD operations
+- Role-based access control
+            '''
+        },
+        {
+            'name': 'Users',
+            'description': '''
+**User management for organization members**
+
+Manage users within your organization with role-based permissions.
+
+**Available Roles:**
+- Admin, Manager, Supervisor, Accountant, Cashier, Viewer
+
+**Permissions:**
+- Only admins and managers can create/update/delete users
+- All authenticated users can view user list
+            '''
+        },
+        {
+            'name': 'Tenants',
+            'description': '''
+**Organization (tenant) management**
+
+Manage organizations, invitations, and multi-tenant operations.
+
+**Features:**
+- Create and manage organizations
+- Invite users to organizations
+- Module-based access control
+            '''
+        },
+        {
+            'name': 'Inventory - Categories',
+            'description': '''
+**Product category management**
+
+Organize products into hierarchical categories.
+
+**Features:**
+- Hierarchical category structure (parent-child)
+- Category tree view
+- Filter products by category
+            '''
+        },
+        {
+            'name': 'Inventory - Units',
+            'description': '''
+**Units of measure management**
+
+Define units for measuring products (kg, ton, bag, piece, etc.).
+
+**Unit Types:**
+- Count (piece, box, dozen)
+- Weight (kg, ton, gram)
+- Length (meter, foot, inch)
+- Volume (liter, gallon)
+- Area (sqft, sqm)
+            '''
+        },
+        {
+            'name': 'Inventory - Warehouses',
+            'description': '''
+**Warehouse/storage location management**
+
+Manage multiple warehouses and track stock by location.
+
+**Features:**
+- Multiple warehouse support
+- Warehouse managers
+- Stock summary per warehouse
+- Active/inactive status
+            '''
+        },
+        {
+            'name': 'Inventory - Products',
+            'description': '''
+**Product management and stock tracking**
+
+Complete product lifecycle management with stock tracking.
+
+**Features:**
+- Product CRUD operations
+- Stock tracking by warehouse
+- Low stock alerts (reorder level)
+- Stock history
+- Cost and selling price management
+            '''
+        },
+        {
+            'name': 'Inventory - Stocks',
+            'description': '''
+**Stock level monitoring (read-only)**
+
+View current stock levels across all warehouses.
+
+**Note:** Stock is updated through stock operations, not direct editing.
+            '''
+        },
+        {
+            'name': 'Inventory - Movements',
+            'description': '''
+**Stock movement history (read-only)**
+
+Immutable audit trail of all stock changes.
+
+**Movement Types:**
+- In: Stock added to warehouse
+- Out: Stock removed from warehouse
+- Transfer: Stock moved between warehouses
+- Adjustment: Stock correction
+            '''
+        },
+        {
+            'name': 'Inventory - Operations',
+            'description': '''
+**Stock operations (in/out/transfer/adjustment)**
+
+Perform stock operations that update inventory levels.
+
+**Operations:**
+- **Stock In**: Add stock to warehouse
+- **Stock Out**: Remove stock from warehouse (validates availability)
+- **Transfer**: Move stock between warehouses
+- **Adjustment**: Make corrections to stock levels
+
+**Permissions:** Requires Supervisor or Admin role
+            '''
+        },
+        {
+            'name': 'Inventory - Reports',
+            'description': '''
+**Inventory reporting and analytics**
+
+Generate inventory reports including stock summary, low stock, valuation, and movement reports.
+            '''
+        },
+        {
+            'name': 'Sales - Customers',
+            'description': '''
+**Customer management with credit tracking**
+
+Manage customers with credit limit and balance tracking.
+
+**Features:**
+- Customer CRUD operations
+- Credit limit management
+- Current balance tracking
+- Customer ledger
+- Aging reports
+- Payment terms
+            '''
+        },
+        {
+            'name': 'Sales - Orders',
+            'description': '''
+**Sales order management**
+
+Create and manage sales orders with line items.
+
+**Features:**
+- Multi-line orders
+- Stock validation
+- Order status tracking
+- Convert to invoice
+- Credit sales support
+            '''
+        },
+        {
+            'name': 'Sales - Quotations',
+            'description': '''
+**Quotation management**
+
+Create quotations and convert to sales orders.
+
+**Features:**
+- Multi-line quotations
+- Validity period
+- Convert to sales order
+- Status tracking
+            '''
+        },
+        {
+            'name': 'Sales - Invoices',
+            'description': '''
+**Invoice management**
+
+Generate and manage sales invoices.
+
+**Features:**
+- Invoice generation from orders
+- Payment tracking
+- Due date management
+- Invoice status (Draft, Sent, Paid, Overdue)
+            '''
+        },
+        {
+            'name': 'Sales - Credit Notes',
+            'description': '''
+**Credit note management**
+
+Issue credit notes for returns and adjustments.
+            '''
+        },
+        {
+            'name': 'Sales - Dashboard',
+            'description': '''
+**Sales dashboard and analytics**
+
+Comprehensive sales dashboard with revenue charts, top products, and recent orders.
+            '''
+        },
+        {
+            'name': 'Purchase - Suppliers',
+            'description': '''
+**Supplier management**
+
+Manage supplier information and contacts.
+            '''
+        },
+        {
+            'name': 'Purchase - Requests',
+            'description': '''
+**Purchase request management with 3-step approval**
+
+Create purchase requests with multi-level approval workflow.
+
+**Approval Workflow:**
+1. Requester creates request
+2. Supervisor approves
+3. Manager approves
+4. Convert to purchase order
+            '''
+        },
+        {
+            'name': 'Purchase - Orders',
+            'description': '''
+**Purchase order management**
+
+Create and manage purchase orders to suppliers.
+
+**Features:**
+- Multi-line orders
+- Receive items
+- Track received quantities
+- Order status tracking
+            '''
+        },
+        {
+            'name': 'Accounting - Accounts',
+            'description': '''
+**Chart of accounts management**
+
+Manage the chart of accounts with hierarchical structure.
+
+**Account Types:**
+- Asset, Liability, Equity, Revenue, Expense
+            '''
+        },
+        {
+            'name': 'Accounting - Journal Entries',
+            'description': '''
+**Journal entry management**
+
+Create and manage journal entries with debit/credit lines.
+
+**Features:**
+- Multi-line entries
+- Balanced validation (debit = credit)
+- Entry status tracking
+            '''
+        },
+        {
+            'name': 'Accounting - Reports',
+            'description': '''
+**Financial reports**
+
+Generate financial reports including trial balance, profit & loss, and balance sheet.
+            '''
+        },
+        {
+            'name': 'Construction - Sites',
+            'description': '''
+**Construction site management**
+
+Manage construction sites with budget and progress tracking.
+            '''
+        },
+        {
+            'name': 'Construction - Workers',
+            'description': '''
+**Construction worker management**
+
+Manage construction workers and labor tracking.
+            '''
+        },
+        {
+            'name': 'Construction - Equipment',
+            'description': '''
+**Construction equipment management**
+
+Track construction equipment and usage.
+            '''
+        },
+        {
+            'name': 'Construction - Daily Logs',
+            'description': '''
+**Daily construction logs**
+
+Record daily activities, material consumption, and labor hours.
+            '''
+        },
+        {
+            'name': 'HR - Employees',
+            'description': '''
+**Employee management**
+
+Manage employee information and records.
+            '''
+        },
+        {
+            'name': 'HR - Departments',
+            'description': '''
+**Department management**
+
+Organize employees into departments.
+            '''
+        },
+        {
+            'name': 'HR - Attendance',
+            'description': '''
+**Attendance tracking**
+
+Track employee attendance and working hours.
+            '''
+        },
+        {
+            'name': 'HR - Leave',
+            'description': '''
+**Leave management**
+
+Manage employee leave requests and approvals.
+            '''
+        },
+        {
+            'name': 'HR - Payroll',
+            'description': '''
+**Payroll management**
+
+Process employee payroll and salary payments.
+            '''
+        },
+        {
+            'name': 'POS - Sessions',
+            'description': '''
+**POS session management**
+
+Manage point-of-sale sessions with opening and closing cash.
+            '''
+        },
+        {
+            'name': 'POS - Transactions',
+            'description': '''
+**POS transaction management**
+
+Process point-of-sale transactions and sales.
+
+**Payment Methods:**
+- Cash, Card, UPI, Credit
+            '''
+        },
+        {
+            'name': 'POS - Discounts',
+            'description': '''
+**POS discount management**
+
+Create and manage discounts for POS transactions.
+
+**Discount Types:**
+- Percentage, Fixed Amount
+            '''
+        },
+        {
+            'name': 'POS - Products',
+            'description': '''
+**Product search for POS**
+
+Search products for POS transactions with barcode support.
+            '''
+        },
+        {
+            'name': 'POS - Reports',
+            'description': '''
+**POS reports and analytics**
+
+Generate daily sales reports and POS analytics.
+            '''
+        },
+        {
+            'name': 'Reports',
+            'description': '''
+**Comprehensive reporting module**
+
+Generate reports across all modules including sales, purchase, inventory, and financial reports.
+            '''
+        },
+        {
+            'name': 'Permissions',
+            'description': '''
+**Role-based permission management**
+
+Manage permissions for different user roles.
+
+**Permissions:** Only admins and managers can update permissions
+            '''
+        },
+        {
+            'name': 'Audit',
+            'description': '''
+**Audit log tracking**
+
+View audit logs of all system activities.
+
+**Permissions:** Only admins and managers can view audit logs
+            '''
+        },
     ],
     'SWAGGER_UI_SETTINGS': {
         'deepLinking': True,
         'persistAuthorization': True,
         'displayOperationId': True,
         'filter': True,
+        'defaultModelsExpandDepth': 1,
+        'defaultModelExpandDepth': 3,
+        'docExpansion': 'list',
+        'syntaxHighlight': {
+            'activate': True,
+            'theme': 'monokai'
+        },
     },
     'SECURITY': [
         {
@@ -261,6 +808,68 @@ SPECTACULAR_SETTINGS = {
                 'type': 'http',
                 'scheme': 'bearer',
                 'bearerFormat': 'JWT',
+                'description': 'Enter your JWT token in the format: **Bearer &lt;token&gt;**'
+            }
+        },
+        'schemas': {
+            'Error': {
+                'type': 'object',
+                'properties': {
+                    'error': {
+                        'type': 'string',
+                        'description': 'Error message',
+                        'example': 'Insufficient stock. Available: 50.00'
+                    },
+                    'detail': {
+                        'type': 'string',
+                        'description': 'Detailed error description',
+                        'example': 'Cannot complete the requested operation'
+                    },
+                    'field': {
+                        'type': 'string',
+                        'description': 'Field that caused the error (if applicable)',
+                        'example': 'quantity'
+                    }
+                }
+            },
+            'ValidationError': {
+                'type': 'object',
+                'additionalProperties': {
+                    'type': 'array',
+                    'items': {'type': 'string'}
+                },
+                'example': {
+                    'email': ['This field is required.'],
+                    'quantity': ['Ensure this value is greater than 0.'],
+                    'sku': ['Product with this SKU already exists.']
+                }
+            },
+            'PaginatedResponse': {
+                'type': 'object',
+                'properties': {
+                    'count': {
+                        'type': 'integer',
+                        'description': 'Total number of items',
+                        'example': 150
+                    },
+                    'next': {
+                        'type': 'string',
+                        'nullable': True,
+                        'description': 'URL to next page',
+                        'example': 'http://localhost:8000/api/inventory/products/?page=2'
+                    },
+                    'previous': {
+                        'type': 'string',
+                        'nullable': True,
+                        'description': 'URL to previous page',
+                        'example': None
+                    },
+                    'results': {
+                        'type': 'array',
+                        'items': {},
+                        'description': 'Array of results'
+                    }
+                }
             }
         }
     },

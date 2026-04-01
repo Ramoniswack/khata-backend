@@ -195,6 +195,7 @@ def get_permissions(request):
         'Manager': {},
         'Supervisor': {},
         'Accountant': {},
+        'Cashier': {},
         'Viewer': {},
     }
     
@@ -204,6 +205,7 @@ def get_permissions(request):
         'manager': 'Manager',
         'supervisor': 'Supervisor',
         'accountant': 'Accountant',
+        'cashier': 'Cashier',
         'viewer': 'Viewer',
     }
     
@@ -276,6 +278,7 @@ def update_permissions(request):
         'Manager': 'manager',
         'Supervisor': 'supervisor',
         'Accountant': 'accountant',
+        'Cashier': 'cashier',
         'Viewer': 'viewer',
     }
     

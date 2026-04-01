@@ -2,11 +2,8 @@ from django.urls import path
 from .views import ReportViewSet
 
 urlpatterns = [
-    # Reports
-    path('', ReportViewSet.as_view({'get': 'list', 'post': 'create'}), name='report-list'),
-    path('<int:pk>/', ReportViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}), name='report-detail'),
-    path('<int:pk>/execute/', ReportViewSet.as_view({'post': 'execute'}), name='report-execute'),
-    path('templates/', ReportViewSet.as_view({'get': 'templates'}), name='report-templates'),
+    # Reports - ViewSet with specific report actions only
+    path('', ReportViewSet.as_view({'get': 'list'}), name='report-list'),
     
     # Dashboard & Summary Reports
     path('dashboard-summary/', ReportViewSet.as_view({'get': 'dashboard_summary'}), name='report-dashboard-summary'),

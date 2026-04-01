@@ -21,6 +21,7 @@ class RolePermission(TenantModel):
         ('manager', 'Manager'),
         ('supervisor', 'Supervisor'),
         ('accountant', 'Accountant'),
+        ('cashier', 'Cashier'),
         ('viewer', 'Viewer'),
     ]
     
@@ -106,6 +107,12 @@ def get_default_permissions():
             'sales': ['view'],
             'purchase': ['view'],
             'reports': ['view', 'export'],
+        },
+        'cashier': {
+            'sales': ['view', 'create'],
+            'inventory': ['view'],
+            'pos': ['view', 'create', 'edit', 'delete'],
+            'reports': ['view'],
         },
         'viewer': {
             'sales': ['view'],

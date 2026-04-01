@@ -107,6 +107,7 @@ class PurchaseRequestViewSet(viewsets.ModelViewSet):
         return PurchaseRequestSerializer
     
     def perform_create(self, serializer):
+        # Set requested_by to current user and tenant
         serializer.save(requested_by=self.request.user, tenant=self.request.user.tenant)
     
     @extend_schema(
@@ -381,8 +382,16 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         request={'application/json': {
             'type': 'object',
             'properties': {
-                'line_id': {'type': 'string'},
-                'quantity': {'type': 'number'}
+                'items': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'line_id': {'type': 'string'},
+                            'quantity': {'type': 'number'}
+                        }
+                    }
+                }
             }
         }},
         responses={200: PurchaseOrderSerializer}
@@ -391,35 +400,73 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def receive_items(self, request, pk=None):
         """Receive items from a purchase order"""
         purchase_order = self.get_object()
-        line_id = request.data.get('line_id')
-        quantity = request.data.get('quantity')
+        items = request.data.get('items', [])
         
-        if not line_id or not quantity:
+        if not items:
             return Response(
-                {'error': 'Line ID and quantity are required'},
+                {'error': 'Items array is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        try:
-            from .models import PurchaseOrderLine
-            line = PurchaseOrderLine.objects.get(
-                id=line_id,
-                purchase_order=purchase_order
-            )
-        except PurchaseOrderLine.DoesNotExist:
-            return Response(
-                {'error': 'Purchase order line not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        from .models import PurchaseOrderLine
         
-        # Update received quantity
-        line.received_quantity += float(quantity)
-        if line.received_quantity > line.quantity:
-            return Response(
-                {'error': 'Received quantity exceeds ordered quantity'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        line.save()
+        # Process each item
+        for item in items:
+            line_id = item.get('line_id')
+            quantity = item.get('quantity')
+            
+            if not line_id or not quantity:
+                continue
+            
+            try:
+                line = PurchaseOrderLine.objects.get(
+                    id=line_id,
+                    purchase_order=purchase_order
+                )
+            except PurchaseOrderLine.DoesNotExist:
+                continue
+            
+            # Update received quantity
+            line.received_quantity += float(quantity)
+            if line.received_quantity > line.quantity:
+                return Response(
+                    {'error': f'Received quantity exceeds ordered quantity for {line.product.name}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            line.save()
+            
+            # Update stock - use first warehouse if available
+            try:
+                from inventory.models import Warehouse, Stock, StockMovement
+                warehouse = Warehouse.objects.filter(tenant=request.user.tenant).first()
+                
+                if warehouse:
+                    stock, created = Stock.objects.get_or_create(
+                        tenant=request.user.tenant,
+                        product=line.product,
+                        warehouse=warehouse,
+                        defaults={'quantity': 0}
+                    )
+                    stock.quantity += float(quantity)
+                    stock.save()
+                    
+                    # Create stock movement
+                    StockMovement.objects.create(
+                        tenant=request.user.tenant,
+                        product=line.product,
+                        warehouse=warehouse,
+                        movement_type='in',
+                        quantity=float(quantity),
+                        unit_cost=line.unit_price,
+                        reference=purchase_order.po_number,
+                        notes=f"Received from PO {purchase_order.po_number}",
+                        created_by=request.user
+                    )
+            except Exception as e:
+                # Log the error but don't fail the receive operation
+                import traceback
+                print(f"[Receive Items] Stock update error: {str(e)}")
+                print(traceback.format_exc())
         
         # Update PO status based on received quantities
         all_lines = purchase_order.lines.all()
@@ -436,30 +483,6 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             purchase_order.status = 'Partially Received'
         
         purchase_order.save()
-        
-        # Update stock (integrate with inventory module)
-        from inventory.models import Stock, StockMovement
-        stock, created = Stock.objects.get_or_create(
-            tenant=request.user.tenant,
-            product=line.product,
-            warehouse_id=request.data.get('warehouse_id'),  # Should be provided
-            defaults={'quantity': 0}
-        )
-        stock.quantity += float(quantity)
-        stock.save()
-        
-        # Create stock movement
-        StockMovement.objects.create(
-            tenant=request.user.tenant,
-            product=line.product,
-            warehouse_id=request.data.get('warehouse_id'),
-            movement_type='in',
-            quantity=float(quantity),
-            unit_cost=line.unit_price,
-            reference=purchase_order.po_number,
-            notes=f"Received from PO {purchase_order.po_number}",
-            created_by=request.user
-        )
         
         serializer = self.get_serializer(purchase_order)
         return Response(serializer.data)

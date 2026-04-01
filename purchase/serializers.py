@@ -31,7 +31,15 @@ class PurchaseRequestLineSerializer(serializers.ModelSerializer):
             'id', 'product', 'product_name', 'product_sku', 'description',
             'quantity', 'estimated_unit_price', 'estimated_amount'
         ]
-        read_only_fields = ['id', 'estimated_amount']
+        read_only_fields = ['id', 'estimated_amount', 'product_name', 'product_sku']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make description optional
+        if 'description' in self.fields:
+            self.fields['description'].required = False
+            self.fields['description'].allow_null = True
+            self.fields['description'].allow_blank = True
 
 
 class PurchaseRequestSerializer(serializers.ModelSerializer):
@@ -57,17 +65,31 @@ class PurchaseRequestCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseRequest
         fields = [
-            'id', 'request_number', 'date', 'requested_by', 'department',
+            'id', 'request_number', 'date', 'department',
             'required_by', 'estimated_amount', 'priority', 'status',
             'notes', 'lines'
         ]
+        read_only_fields = ['id', 'request_number']
     
     def create(self, validated_data):
         lines_data = validated_data.pop('lines')
+        
+        # Generate request number
+        from django.utils import timezone
+        tenant = validated_data.get('tenant')
+        if tenant:
+            count = PurchaseRequest.objects.filter(tenant=tenant).count() + 1
+            request_number = f"PR-{timezone.now().year}-{count:05d}"
+            validated_data['request_number'] = request_number
+        
         purchase_request = PurchaseRequest.objects.create(**validated_data)
+        
+        # Get tenant from the purchase request
+        tenant = purchase_request.tenant
         
         for line_data in lines_data:
             PurchaseRequestLine.objects.create(
+                tenant=tenant,
                 purchase_request=purchase_request,
                 **line_data
             )

@@ -132,6 +132,41 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'employment_types': list(employment_types),
             'recent_employees': recent_serializer.data,
         })
+    
+    @extend_schema(
+        tags=['HR - Employees'],
+        summary='Get managers/approvers',
+        description='Returns list of employees who can approve purchase requests (Manager, Director, CEO, etc.)'
+    )
+    @action(detail=False, methods=['get'], url_path='managers')
+    def managers(self, request):
+        """Get list of managers/approvers for purchase requests"""
+        tenant = request.user.tenant
+        
+        # Designations that can approve
+        manager_designations = [
+            'Manager', 'Senior Manager', 'Director', 
+            'Senior Director', 'CEO', 'CFO', 'CTO', 
+            'COO', 'VP', 'Vice President', 'President'
+        ]
+        
+        # Get active employees with manager-level designations
+        managers = Employee.objects.filter(
+            tenant=tenant,
+            status='active',
+            designation__in=manager_designations
+        ).select_related('department').order_by('name')
+        
+        # Serialize with basic info
+        data = [{
+            'id': emp.id,
+            'name': emp.name,
+            'designation': emp.designation,
+            'department': emp.department.name if emp.department else None,
+            'email': emp.email,
+        } for emp in managers]
+        
+        return Response(data)
 
 
 
