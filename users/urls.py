@@ -5,7 +5,8 @@ from .views import (
     RegisterView, UserProfileView, UserViewSet, CustomTokenObtainPairView, 
     AuditLogViewSet, get_permissions, update_permissions,
     update_user_profile, change_password, get_notification_preferences,
-    update_notification_preferences, get_active_sessions, revoke_session
+    update_notification_preferences, get_active_sessions, revoke_session,
+    get_appearance_preferences, update_appearance_preferences
 )
 
 # Add schema documentation to JWT refresh view
@@ -27,6 +28,8 @@ urlpatterns = [
     path('password/', change_password, name='change_password'),
     path('preferences/', get_notification_preferences, name='get_notification_preferences'),
     path('preferences/update/', update_notification_preferences, name='update_notification_preferences'),
+    path('appearance/', get_appearance_preferences, name='get_appearance_preferences'),
+    path('appearance/update/', update_appearance_preferences, name='update_appearance_preferences'),
     path('sessions/', get_active_sessions, name='get_active_sessions'),
     path('sessions/<str:session_id>/', revoke_session, name='revoke_session'),
     

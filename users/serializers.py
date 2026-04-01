@@ -64,6 +64,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'email': user.email,
             'first_name': user.first_name,
             'last_name': user.last_name,
+            'phone': user.phone,
+            'avatar': user.avatar.url if user.avatar else None,
             'role': user.role,
             'permissions': {
                 'is_admin': user.is_admin,
@@ -117,10 +119,11 @@ class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     permissions = serializers.SerializerMethodField()
     role = serializers.SerializerMethodField()
+    avatar = serializers.ImageField(required=False, allow_null=True)
     
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'phone', 'tenant', 'password', 'is_active', 'last_login', 'date_joined', 'permissions']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'role', 'phone', 'avatar', 'tenant', 'password', 'is_active', 'last_login', 'date_joined', 'permissions']
         read_only_fields = ['id', 'tenant', 'last_login', 'date_joined', 'permissions']
     
     def get_role(self, obj):
@@ -390,3 +393,25 @@ class UpdatePermissionsSerializer(serializers.Serializer):
     Accountant = serializers.DictField(child=serializers.BooleanField(), required=False)
     Cashier = serializers.DictField(child=serializers.BooleanField(), required=False)
     Viewer = serializers.DictField(child=serializers.BooleanField(), required=False)
+
+
+class AppearancePreferencesSerializer(serializers.Serializer):
+    """Serializer for user appearance preferences"""
+    theme = serializers.ChoiceField(
+        choices=['light', 'dark', 'system'],
+        default='light'
+    )
+    language = serializers.ChoiceField(
+        choices=['en-US', 'en-GB', 'es', 'fr', 'de', 'hi'],
+        default='en-US'
+    )
+    timezone = serializers.ChoiceField(
+        choices=[
+            'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
+            'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Dubai',
+            'Asia/Kolkata', 'Asia/Singapore', 'Asia/Tokyo', 'Australia/Sydney'
+        ],
+        default='UTC'
+    )
+    compact_mode = serializers.BooleanField(default=False)
+    smooth_animations = serializers.BooleanField(default=True)

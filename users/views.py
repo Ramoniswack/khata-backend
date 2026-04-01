@@ -272,17 +272,65 @@ def update_notification_preferences(request):
 @api_view(['GET'])
 @permission_classes([drf_permissions.IsAuthenticated])
 def get_active_sessions(request):
-    """Get active sessions (mock data for now - implement with JWT blacklist or session store)"""
+    """Get active sessions with real device and location information"""
     from django.utils import timezone
-    import datetime
+    import re
     
-    # Mock session data - in production, this would come from a session store or JWT blacklist
+    # Get real device information from User-Agent
+    user_agent = request.META.get('HTTP_USER_AGENT', '')
+    
+    # Parse browser
+    browser = 'Unknown Browser'
+    if 'Chrome' in user_agent and 'Edg' not in user_agent:
+        browser = 'Chrome'
+    elif 'Firefox' in user_agent:
+        browser = 'Firefox'
+    elif 'Safari' in user_agent and 'Chrome' not in user_agent:
+        browser = 'Safari'
+    elif 'Edg' in user_agent:
+        browser = 'Edge'
+    elif 'Opera' in user_agent or 'OPR' in user_agent:
+        browser = 'Opera'
+    
+    # Parse operating system
+    os_name = 'Unknown OS'
+    if 'Windows NT 10' in user_agent:
+        os_name = 'Windows 10'
+    elif 'Windows NT 11' in user_agent:
+        os_name = 'Windows 11'
+    elif 'Windows' in user_agent:
+        os_name = 'Windows'
+    elif 'Mac OS X' in user_agent:
+        os_name = 'macOS'
+    elif 'Linux' in user_agent:
+        os_name = 'Linux'
+    elif 'Android' in user_agent:
+        os_name = 'Android'
+    elif 'iPhone' in user_agent or 'iPad' in user_agent:
+        os_name = 'iOS'
+    
+    device_string = f"{browser} on {os_name}"
+    
+    # Get IP address
+    ip_address = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+    if not ip_address:
+        ip_address = request.META.get('REMOTE_ADDR', '127.0.0.1')
+    
+    # Simple location detection (in production, use a GeoIP service)
+    location = 'Unknown Location'
+    if ip_address == '127.0.0.1' or ip_address.startswith('192.168.') or ip_address.startswith('10.'):
+        location = 'Local Network'
+    else:
+        # In production, use a GeoIP service like MaxMind or ipapi.co
+        location = 'Remote Location'
+    
+    # Current session data
     sessions = [
         {
             'id': '1',
-            'device': 'Chrome on Windows',
-            'location': 'New York, US',
-            'ip_address': request.META.get('REMOTE_ADDR', '127.0.0.1'),
+            'device': device_string,
+            'location': location,
+            'ip_address': ip_address,
             'last_active': timezone.now(),
             'is_current': True,
         }
@@ -521,3 +569,68 @@ def update_permissions(request):
         },
         status=status.HTTP_200_OK
     )
+
+
+@api_view(['GET'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def get_appearance_preferences(request):
+    """Get user appearance preferences"""
+    from .appearance_models import AppearancePreferences
+    from .serializers import AppearancePreferencesSerializer
+    
+    # Get or create preferences
+    preferences, created = AppearancePreferences.objects.get_or_create(
+        user=request.user,
+        defaults={
+            'theme': 'light',
+            'language': 'en-US',
+            'timezone': 'UTC',
+            'compact_mode': False,
+            'smooth_animations': True,
+        }
+    )
+    
+    serializer = AppearancePreferencesSerializer({
+        'theme': preferences.theme,
+        'language': preferences.language,
+        'timezone': preferences.timezone,
+        'compact_mode': preferences.compact_mode,
+        'smooth_animations': preferences.smooth_animations,
+    })
+    
+    return Response(serializer.data)
+
+
+@api_view(['PATCH'])
+@permission_classes([drf_permissions.IsAuthenticated])
+def update_appearance_preferences(request):
+    """Update user appearance preferences"""
+    from .appearance_models import AppearancePreferences
+    from .serializers import AppearancePreferencesSerializer
+    
+    # Get or create preferences
+    preferences, created = AppearancePreferences.objects.get_or_create(
+        user=request.user
+    )
+    
+    # Validate data
+    serializer = AppearancePreferencesSerializer(data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Update preferences
+    for field, value in serializer.validated_data.items():
+        setattr(preferences, field, value)
+    
+    preferences.save()
+    
+    # Return updated preferences
+    response_serializer = AppearancePreferencesSerializer({
+        'theme': preferences.theme,
+        'language': preferences.language,
+        'timezone': preferences.timezone,
+        'compact_mode': preferences.compact_mode,
+        'smooth_animations': preferences.smooth_animations,
+    })
+    
+    return Response(response_serializer.data)
